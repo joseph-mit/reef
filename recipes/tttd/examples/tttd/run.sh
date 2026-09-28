@@ -10,6 +10,10 @@ cd "$(dirname "$0")"
 TTTD_METHOD=${TTTD_METHOD:-tttd}
 case "$TTTD_METHOD" in
   tttd) config=serve.yaml ;;
+  tttd-mean) config=serve.tttd-mean.yaml ;;
+  spottt) config=serve.spottt.yaml ;;
+  spottt-smoke) config=serve.spottt-smoke.yaml ;;
+  search-only) config=serve.search-only.yaml ;;
   ppottt) config=serve.ppottt.yaml; export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3} ;;
   ppottt-smoke) config=serve.ppottt-smoke.yaml; export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3} ;;
   *)

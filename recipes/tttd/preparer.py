@@ -112,3 +112,52 @@ class TttdPreparer(StepPreparer):
             normalized,
             StepScheduling(unit="sample", batch_size="actual"),
         )
+
+
+@register_step_preparer
+class TttdMeanBaselinePreparer(StepPreparer):
+    """Group-mean baseline in place of the entropic weights, for the comparison ladder.
+
+    Same grid, same barrier, same loss as ``tttd``; only the advantage changes
+    to GRPO's ``(r_i - mean) / (std + eps)`` within each comparison set. Running
+    this next to ``tttd`` separates what the entropic objective contributes
+    from what the grouped baseline contributes, which is the control a
+    critic-based or tracker-based method has to be read against.
+    """
+
+    name = "tttd-mean"
+    epsilon = 1e-6
+
+    @staticmethod
+    def mean_baseline_advantages(rewards: list[float], epsilon: float = 1e-6) -> tuple[float, ...]:
+        """GRPO-normalised advantages; a constant group carries no signal and maps to zeros."""
+        if not rewards:
+            raise ValueError("a mean-baseline group cannot be empty")
+        mean = math.fsum(rewards) / len(rewards)
+        std = math.sqrt(math.fsum((r - mean) ** 2 for r in rewards) / len(rewards))
+        if std == 0.0:
+            return tuple(0.0 for _ in rewards)
+        return tuple((r - mean) / (std + epsilon) for r in rewards)
+
+    def __call__(self, batch: TrainingBatch, state: Mapping[str, Any]) -> StepSignal:
+        if not isinstance(batch, GroupedPolicyBatch):
+            raise TypeError(f"{self.name} requires GroupedPolicyBatch, got {type(batch).__name__}")
+        advantages: list[float] = []
+        for comparison_set in batch.comparison_sets:
+            advantages.extend(
+                self.mean_baseline_advantages([sample.reward for sample in comparison_set], self.epsilon)
+            )
+        steps = next_steps(state)
+        constant_groups = all(len({sample.reward for sample in group}) == 1 for group in batch.comparison_sets)
+        return StepSignal(
+            "train",
+            "tttd",
+            {"steps": steps},
+            {
+                "advantages": tuple(advantages),
+                "constant_groups_retained": int(constant_groups),
+                "steps": steps,
+            },
+            tuple(advantages),
+            StepScheduling(unit="sample", batch_size="actual"),
+        )

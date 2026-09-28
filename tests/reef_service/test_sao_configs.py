@@ -343,6 +343,7 @@ def test_cookbook_training_configs_are_discovered() -> None:
         "recipes/sao/examples/sao/serve.yaml",
         "recipes/tttd/examples/tttd/serve.yaml",
         "recipes/tttd/examples/tttd/serve.ppottt.yaml",
+        "recipes/tttd/examples/tttd/serve.spottt.yaml",
         "recipes/tttd/examples/guidance_ttt/serve.yaml",
     }
 
@@ -364,6 +365,10 @@ def test_user_facing_example_deployments_are_discovered() -> None:
         "recipes/tttd/examples/tttd/serve.yaml",
         "recipes/tttd/examples/tttd/serve.ppottt.yaml",
         "recipes/tttd/examples/tttd/serve.ppottt-smoke.yaml",
+        "recipes/tttd/examples/tttd/serve.tttd-mean.yaml",
+        "recipes/tttd/examples/tttd/serve.spottt.yaml",
+        "recipes/tttd/examples/tttd/serve.spottt-smoke.yaml",
+        "recipes/tttd/examples/tttd/serve.search-only.yaml",
     }
 
 

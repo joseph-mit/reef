@@ -28,6 +28,9 @@ harness/              agent harness (PUCT search + Reef adapter)
   methods.py            the training methods TTTD_METHOD selects, and their state paths
 serve.yaml            Reef + Ray + Slime/Megatron + SGLang stack config
 serve.ppottt*.yaml    the same stack trained with PPO and a critic (recipes/ppottt)
+serve.spottt*.yaml    ... with a baseline from past outcomes (recipes/spottt)
+serve.tttd-mean.yaml  ... with a group-mean baseline, the control for both
+serve.search-only.yaml  the search on frozen weights, the floor of a comparison
 run.py                one reef-eval episode owning the complete TTT trajectory
 run.sh                starts the reef training stack, then runs run.py
 pyproject.toml        makes the harness importable
@@ -217,13 +220,24 @@ harness, tasks and verifiers drive other recipes. `TTTD_METHOD` picks one:
 | `TTTD_METHOD` | Config | Recipe | GPUs |
 | --- | --- | --- | --- |
 | `tttd` (default) | `serve.yaml` | TTT-Discover, grouped entropic advantages | 2 |
+| `tttd-mean` | `serve.tttd-mean.yaml` | TTT-Discover's grid and loss with a group-mean baseline | 2 |
 | `ppottt` | `serve.ppottt.yaml` | [PPO-TTT](../../../ppottt/README.md): clipped PPO with a scalar critic | 4 |
 | `ppottt-smoke` | `serve.ppottt-smoke.yaml` | one 2x2 PPO-TTT step with thinking off | 4 |
+| `spottt` | `serve.spottt.yaml` | [SPO-TTT](../../../spottt/README.md): baseline from past outcomes, no critic | 2 |
+| `spottt-smoke` | `serve.spottt-smoke.yaml` | one 2x2 SPO-TTT step with thinking off | 2 |
+| `search-only` | `serve.search-only.yaml` | the same search on frozen weights: reports are not trained on | 2 |
 
 ```bash
 TTTD_METHOD=ppottt-smoke ./run.sh   # integration check of the whole path
 TTTD_METHOD=ppottt ./run.sh         # 50 steps of 8x64 on Erdős
 ```
+
+Read against each other, the methods separate what each part contributes at
+one verifier budget: `search-only` is the floor PUCT reaches without learning,
+`tttd` and `tttd-mean` differ only in the objective, and `ppottt` and `spottt`
+replace `tttd-mean`'s sibling group with a critic or with past outcomes.
+`serve.yaml` ships TTT-Discover's one-step default; set `training.steps: 50`
+there to match the other configs, which ship the paper's 50 steps.
 
 Every method other than `tttd` keeps its state under `work/<method>/<task>/`
 and its scenario as `<method>-<task>`, so runs of different methods never share

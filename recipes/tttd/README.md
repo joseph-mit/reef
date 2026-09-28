@@ -12,7 +12,8 @@ Reproduction of [Learning to Discover at Test Time](https://arxiv.org/abs/2601.1
 tttd/
   recipe.py        TTTDRecipe: training spec, loss family "tttd", grid configuration
   processor.py     reported feedback, grouped: the step is the full grid of sibling attempts
-  preparer.py      builds the grouped policy batch for the driver
+  preparer.py      builds the grouped policy batch for the driver: adaptive-entropic
+                   advantages, or the group-mean control (TTTDMeanBaselineRecipe)
   report.py        TTTDGroupedRolloutReport, the declared report schema
   slime/           the training-plane objective: the grouped entropic loss
   examples/tttd/   the runnable search: Harbor tasks, PUCT archive, serve.yaml, results
