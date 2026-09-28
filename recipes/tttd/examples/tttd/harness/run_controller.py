@@ -16,6 +16,10 @@ from typing import Any, Protocol
 STATE_FORMAT_VERSION = 1
 
 
+# The runtime load ID a search-only run records: its weights never change.
+FROZEN_POLICY = "frozen"
+
+
 class TTTDRunStateError(RuntimeError):
     """The search archive and Reef's durable training state do not align."""
 
@@ -255,9 +259,11 @@ class TTTDRunController:
         poll_interval_s: float = 2.0,
         sleep: Callable[[float], None] = time.sleep,
         emit: Callable[[Mapping[str, Any]], None] | None = None,
+        wait_for_training: bool = True,
     ) -> None:
         if train_timeout_s <= 0 or poll_interval_s <= 0:
             raise ValueError("training timeout and poll interval must be positive")
+        self.wait_for_training = wait_for_training
         self.harness = harness
         self.status_reader = status_reader
         self.state_store = state_store
@@ -269,6 +275,8 @@ class TTTDRunController:
     def run(self, total_steps: int) -> TTTDRunOutcome:
         if total_steps < 1:
             raise ValueError("total_steps must be positive")
+        if not self.wait_for_training:
+            return self._run_search_only(total_steps)
         next_step, runtime_load_id = self._restore()
         start_step = next_step
         if next_step > total_steps:
@@ -328,6 +336,54 @@ class TTTDRunController:
             start_step=start_step,
             next_step=total_steps,
             runtime_load_id=runtime_load_id,
+        )
+
+    def _run_search_only(self, total_steps: int) -> TTTDRunOutcome:
+        """Run the search on frozen weights: no training commit to wait for.
+
+        This is the reuse-only floor of a comparison, PUCT with an untrained
+        policy. Each step's archive is still saved atomically, so a restart
+        resumes the search at the next step.
+        """
+        saved = self.state_store.load()
+        next_step = 0
+        if saved is not None:
+            self.harness.archive.load_state_dict(saved["archive"])
+            next_step = int(saved["next_step"])
+        if next_step > total_steps:
+            raise TTTDRunStateError(
+                f"saved TTTD state is already at step {next_step}, beyond requested total {total_steps}"
+            )
+        start_step = next_step
+        expected_rollouts = self.state_store.identity.groups_per_step * self.state_store.identity.rollouts_per_group
+        all_results: list[Any] = []
+        for step in range(next_step, total_steps):
+            self._emit({"event": "tttd_step_started", "step": step, "runtime_load_id": FROZEN_POLICY})
+            results = tuple(self.harness.run_step(step))
+            if len(results) != expected_rollouts:
+                raise RuntimeError(f"TTTD step {step} returned {len(results)} rollouts, expected {expected_rollouts}")
+            self.state_store.save_committed(
+                next_step=step + 1,
+                runtime_load_id=FROZEN_POLICY,
+                archive=self.harness.archive.state_dict(),
+            )
+            all_results.extend(results)
+            candidates = self.harness.archive.candidates
+            self._emit(
+                {
+                    "event": "tttd_step_committed",
+                    "step": step,
+                    "next_step": step + 1,
+                    "runtime_load_id": FROZEN_POLICY,
+                    "archive_size": len(candidates),
+                    "archive_best_reward": max(candidate.reward for candidate in candidates),
+                }
+            )
+        return TTTDRunOutcome(
+            results=tuple(all_results),
+            start_step=start_step,
+            next_step=total_steps,
+            runtime_load_id=FROZEN_POLICY,
         )
 
     def _restore(self) -> tuple[int, str | None]:
@@ -430,6 +486,7 @@ class TTTDRunController:
 
 
 __all__ = [
+    "FROZEN_POLICY",
     "ReefTrainingStatusClient",
     "ScenarioTrainingFailure",
     "ScenarioTrainingStatus",

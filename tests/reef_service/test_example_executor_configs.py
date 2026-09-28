@@ -36,6 +36,10 @@ TRAINING_CONFIGS = (
     "recipes/tttd/examples/tttd/serve.yaml",
     "recipes/tttd/examples/tttd/serve.ppottt.yaml",
     "recipes/tttd/examples/tttd/serve.ppottt-smoke.yaml",
+    "recipes/tttd/examples/tttd/serve.tttd-mean.yaml",
+    "recipes/tttd/examples/tttd/serve.spottt.yaml",
+    "recipes/tttd/examples/tttd/serve.spottt-smoke.yaml",
+    "recipes/tttd/examples/tttd/serve.search-only.yaml",
     "recipes/tttd/examples/guidance_ttt/serve.yaml",
 )
 

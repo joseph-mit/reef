@@ -524,3 +524,42 @@ def test_tttd_preparer_flags_a_batch_of_constant_groups() -> None:
 
     assert preparer(constant, {}).metrics["constant_groups_retained"] == 1
     assert preparer(mixed, {}).metrics["constant_groups_retained"] == 0
+
+
+def test_tttd_mean_baseline_preparer_normalises_within_each_group() -> None:
+    from recipes.tttd.preparer import TttdMeanBaselinePreparer
+    from reef.train.algos.registry import resolve_preparer
+    from reef.train.types import GroupedPolicyBatch, PolicySample
+
+    def sample(record_id: str, reward: float) -> PolicySample:
+        return PolicySample(record_id, (5, 1), (1,), (-0.1,), reward)
+
+    preparer = resolve_preparer("tttd-mean")
+    batch = GroupedPolicyBatch(
+        "b",
+        (
+            (sample("a", 1.0), sample("b", 3.0)),  # mean 2, std 1
+            (sample("c", 2.0), sample("d", 2.0), sample("e", 2.0)),  # constant: no signal
+        ),
+    )
+
+    signal = preparer(batch, {})
+
+    assert signal.loss_family == "tttd"
+    assert signal.advantages[:2] == pytest.approx((-1.0 / (1 + 1e-6), 1.0 / (1 + 1e-6)))
+    assert signal.advantages[2:] == (0.0, 0.0, 0.0)
+    assert signal.scheduling.unit == "sample"
+    assert signal.metrics["constant_groups_retained"] == 0
+    assert TttdMeanBaselinePreparer.mean_baseline_advantages([4.0, 4.0]) == (0.0, 0.0)
+    with pytest.raises(ValueError):
+        TttdMeanBaselinePreparer.mean_baseline_advantages([])
+
+
+def test_tttd_mean_baseline_recipe_keeps_the_tttd_loss_family() -> None:
+    from recipes.tttd.recipe import TTTDMeanBaselineRecipe, TTTDRecipe
+
+    spec = TTTDMeanBaselineRecipe.training_spec()
+
+    assert spec.step_preparer == "tttd-mean"
+    assert spec.loss_family == TTTDRecipe.training_spec().loss_family == "tttd"
+    assert spec.processor is TTTDRecipe.training_spec().processor

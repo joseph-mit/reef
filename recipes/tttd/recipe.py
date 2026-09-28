@@ -33,3 +33,19 @@ class TTTDRecipe(WeightTrainingRecipe):
             raise ValueError("groups_per_step must be positive")
         if self.rollouts_per_group < 2:
             raise ValueError("rollouts_per_group must be at least two")
+
+
+@dataclass(frozen=True, kw_only=True)
+class TTTDMeanBaselineRecipe(TTTDRecipe):
+    """TTT-Discover's grid and loss with a group-mean baseline instead of the entropic weights.
+
+    Selected in a deployment config as
+    ``recipes.tttd.recipe:TTTDMeanBaselineRecipe``; everything else, including
+    the report contract and the processor, is inherited unchanged.
+    """
+
+    name: str = "tttd-mean"
+
+    @classmethod
+    def training_spec(cls) -> WeightTrainingSpec:
+        return WeightTrainingSpec(step_preparer="tttd-mean", loss_family="tttd", processor=TTTDProcessor)

@@ -22,14 +22,20 @@ class Method:
     """Deployment config next to ``run.sh``."""
     algorithm: str
     """The ``metadata.algorithm`` tag the method's report contract accepts."""
+    train: bool = True
+    """False runs the search on frozen weights, the floor a comparison reads against."""
 
 
 METHODS: dict[str, Method] = {
     method.name: method
     for method in (
         Method("tttd", "serve.yaml", "ttt-discover"),
+        Method("tttd-mean", "serve.tttd-mean.yaml", "ttt-discover"),
         Method("ppottt", "serve.ppottt.yaml", "ppottt"),
         Method("ppottt-smoke", "serve.ppottt-smoke.yaml", "ppottt"),
+        Method("spottt", "serve.spottt.yaml", "spottt"),
+        Method("spottt-smoke", "serve.spottt-smoke.yaml", "spottt"),
+        Method("search-only", "serve.search-only.yaml", "ttt-discover", train=False),
     )
 }
 

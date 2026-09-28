@@ -294,3 +294,45 @@ def test_controller_fails_fast_when_reef_discards_a_mixed_artifact_step(tmp_path
 
     with pytest.raises(TTTDRunStateError, match="mixed_release_ids"):
         controller.run(1)
+
+
+def test_search_only_run_never_reads_training_status_and_resumes_from_its_archive(tmp_path):
+    from recipes.tttd.examples.tttd.harness.run_controller import FROZEN_POLICY
+
+    events: list[tuple[str, object]] = []
+    store = TTTDRunStateStore(tmp_path / "state.json", _identity())
+
+    class _NoStatus:
+        def scenario_status(self, scenario):
+            raise AssertionError("a search-only run must not wait for training")
+
+    first = TTTDRunController(_Harness(events), _NoStatus(), store, wait_for_training=False)
+    outcome = first.run(2)
+
+    assert outcome.start_step == 0 and outcome.next_step == 2
+    assert outcome.runtime_load_id == FROZEN_POLICY
+    assert len(outcome.results) == 8
+    saved = json.loads((tmp_path / "state.json").read_text())
+    assert (saved["phase"], saved["next_step"], saved["archive"]) == ("committed", 2, {"steps": [0, 1]})
+
+    resumed_events: list[tuple[str, object]] = []
+    resumed_harness = _Harness(resumed_events)
+    second = TTTDRunController(resumed_harness, _NoStatus(), store, wait_for_training=False)
+    outcome = second.run(3)
+
+    assert resumed_events == [("run", 2)]
+    assert outcome.start_step == 2
+    assert resumed_harness.archive.steps == [0, 1, 2]
+
+    with pytest.raises(TTTDRunStateError, match="beyond requested total"):
+        TTTDRunController(_Harness([]), _NoStatus(), store, wait_for_training=False).run(2)
+
+
+def test_search_only_run_checks_the_rollout_count(tmp_path):
+    store = TTTDRunStateStore(tmp_path / "state.json", _identity())
+    controller = TTTDRunController(
+        _Harness([], rollouts_per_step=3), _StatusReader([]), store, wait_for_training=False
+    )
+
+    with pytest.raises(RuntimeError, match="expected 4"):
+        controller.run(1)
