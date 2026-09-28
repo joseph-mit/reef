@@ -2,7 +2,7 @@
 
 Single-stream Policy Optimization (Xu and Ding, arXiv:2509.13232, Section 4.1)
 keeps one running estimate of expected reward per prompt and discounts old
-evidence as the policy moves, which lets a single rollout carry a low-variance
+observations as the policy moves, which lets a single rollout carry a low-variance
 advantage without sibling samples. Test-time discovery breaks the one
 assumption that rule leans on: a scientific state almost never repeats, so a
 prompt-indexed table is empty at the moment it is needed. The tracker here
@@ -45,7 +45,8 @@ class TrackerSettings:
 
     ``half_life`` is measured in units of the drift the caller reports; with
     the default drift (committed policy steps since the key was last updated)
-    a key not touched for ``half_life`` steps keeps half of its evidence.
+    a key not touched for ``half_life`` steps keeps half the weight of its past
+    observations.
     ``rho_min`` and ``rho_max`` are SPO's bounds on the per-update discount,
     so no single update forgets more than ``1 - rho_min`` or less than
     ``1 - rho_max`` of what the key knew. ``inherit_fraction`` is how much of a
@@ -103,7 +104,7 @@ class ForgettingTracker:
     observation it is SPO's adaptive EMA with step ``1 / (rho * n + 1)``. The
     discount is applied once per policy version rather than once per
     observation: siblings sampled in the same step come from the same policy,
-    so per-observation discounting would forget evidence the policy change
+    so per-observation discounting would forget observations the policy change
     never touched.
     """
 
@@ -142,7 +143,7 @@ class ForgettingTracker:
 
         A key seen for the first time starts from ``prior_key``'s estimate when
         that key is warm, with ``inherit_fraction`` of its count, so a fresh
-        archive node begins where its parent's evidence points instead of at
+        archive node begins where its parent's estimate points instead of at
         the batch mean. ``version`` is the policy version that produced the
         rewards; the drift is the version gap since the key's last update.
         """
@@ -154,11 +155,11 @@ class ForgettingTracker:
         if any(not math.isfinite(reward) for reward in finite):
             raise ValueError("rewards must be finite")
 
-        estimate = self._estimates.get(key)
-        if estimate is None and prior_key is not None:
+        if key not in self._estimates and prior_key is not None:
             prior = self._estimates.get(prior_key)
             if prior is not None:
-                estimate = KeyEstimate(prior.mean, prior.count * self.settings.inherit_fraction, prior.version)
+                self.adopt(key, prior)
+        estimate = self._estimates.get(key)
 
         batch_mean = math.fsum(finite) / len(finite)
         if estimate is None:
@@ -173,6 +174,12 @@ class ForgettingTracker:
         self._estimates[key] = updated
         self._evict()
         return updated
+
+    def adopt(self, key: str, prior: KeyEstimate) -> None:
+        """Start a cold key from ``prior``, keeping ``inherit_fraction`` of its count."""
+        if key in self._estimates:
+            raise ValueError(f"key {key!r} already has an estimate")
+        self._estimates[key] = KeyEstimate(prior.mean, prior.count * self.settings.inherit_fraction, prior.version)
 
     def state_dict(self) -> dict[str, Any]:
         """JSON-compatible snapshot: ``{key: [mean, count, version]}``."""
@@ -189,7 +196,7 @@ class ForgettingTracker:
 
     def _evict(self) -> None:
         # The archive itself is capped, so the table stays small; when it does
-        # overflow, drop the keys whose evidence is oldest. The task key is
+        # overflow, drop the keys updated longest ago. The task key is
         # the fallback of last resort and is never evicted.
         excess = len(self._estimates) - self.settings.max_keys
         if excess <= 0:
@@ -234,6 +241,7 @@ def assign_advantages(
     version: int,
     *,
     normalize: bool = True,
+    shared_key: str | None = TASK_KEY,
 ) -> tuple[tuple[float, ...], dict[str, float]]:
     """Advantages for one step, then the tracker update with that step's rewards.
 
@@ -241,8 +249,10 @@ def assign_advantages(
     keeps the baseline independent of the reward it is subtracted from and the
     gradient unbiased. Observations whose whole fallback chain is cold use the
     step's mean reward, so the first step of a run trains on centred rewards
-    rather than on nothing. Returns the advantages in observation order and a
-    few diagnostics for the step's metrics.
+    rather than on nothing. ``shared_key`` also receives every reward of the
+    step, so the task-level estimate a cold archive node falls back to stays
+    current. Returns the advantages in observation order and a few
+    diagnostics for the step's metrics.
     """
     if not observations:
         return (), {"tracked_fraction": 0.0, "tracker_keys": float(len(tracker))}
@@ -260,8 +270,20 @@ def assign_advantages(
     grouped: dict[str, tuple[str | None, list[float]]] = {}
     for observation in observations:
         grouped.setdefault(observation.key, (observation.prior_key, []))[1].append(observation.reward)
-    for key, (prior_key, rewards) in grouped.items():
-        tracker.observe(key, rewards, version, prior_key=prior_key)
+    # Cold keys take their prior as it stood before this step, so a parent's
+    # own update in the same step never leaks into its child's starting point
+    # and the result does not depend on the order keys are visited in.
+    priors = {
+        key: prior
+        for key, (prior_key, _) in grouped.items()
+        if key not in tracker and prior_key is not None and (prior := tracker.estimate(prior_key)) is not None
+    }
+    for key, prior in priors.items():
+        tracker.adopt(key, prior)
+    for key, (_, rewards) in grouped.items():
+        tracker.observe(key, rewards, version)
+    if shared_key is not None and shared_key not in grouped:
+        tracker.observe(shared_key, [observation.reward for observation in observations], version)
 
     advantages = batch_normalize(raw) if normalize else tuple(raw)
     metrics = {

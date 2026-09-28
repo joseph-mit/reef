@@ -218,3 +218,52 @@ def test_normalized_advantages_are_centred_across_the_step() -> None:
 
     assert math.fsum(advantages) == pytest.approx(0.0, abs=1e-12)
     assert advantages[2] < min(advantages[0], advantages[1], advantages[3])
+
+
+@pytest.mark.unit
+def test_node_steps_keep_the_task_estimate_current() -> None:
+    tracker = ForgettingTracker()
+    observations = [
+        Observation(node_key("a"), 1.0, fallbacks=(TASK_KEY,)),
+        Observation(node_key("b"), 3.0, fallbacks=(TASK_KEY,)),
+    ]
+
+    assign_advantages(tracker, observations, version=0)
+
+    assert tracker.estimate(TASK_KEY).mean == pytest.approx(2.0)
+    assert tracker.estimate(TASK_KEY).count == pytest.approx(2.0)
+
+
+@pytest.mark.unit
+def test_task_steps_update_the_task_key_once() -> None:
+    tracker = ForgettingTracker()
+
+    assign_advantages(tracker, [Observation(TASK_KEY, 1.0), Observation(TASK_KEY, 3.0)], version=0)
+
+    assert tracker.estimate(TASK_KEY).count == pytest.approx(2.0)
+
+
+@pytest.mark.unit
+def test_a_new_node_inherits_its_parents_start_of_step_estimate() -> None:
+    tracker = ForgettingTracker()
+    tracker.observe(node_key("p"), [2.0, 2.0], version=0)
+    parent_first = [Observation(node_key("p"), 10.0), Observation(node_key("c"), 0.0, prior_key=node_key("p"))]
+    child_first = list(reversed(parent_first))
+    other = ForgettingTracker(state=tracker.state_dict())
+
+    assign_advantages(tracker, parent_first, version=1)
+    assign_advantages(other, child_first, version=1)
+
+    # Both orders give the child the parent's pre-step estimate (mean 2, count 1).
+    assert tracker.state_dict() == other.state_dict()
+    rho = tracker.settings.forgetting_factor(1.0)
+    assert tracker.estimate(node_key("c")).count == pytest.approx(rho * 1.0 + 1.0)
+    assert tracker.estimate(node_key("c")).mean == pytest.approx(2.0 + (0.0 - 2.0) / (rho + 1.0))
+
+
+@pytest.mark.unit
+def test_adopt_refuses_to_overwrite_an_estimate() -> None:
+    tracker = ForgettingTracker()
+    tracker.observe("q", [1.0], version=0)
+    with pytest.raises(ValueError, match="already has"):
+        tracker.adopt("q", tracker.estimate("q"))
