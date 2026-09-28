@@ -14,7 +14,6 @@ if [ ! -f "$REEF_REPO/pyproject.toml" ] || [ ! -d "$REEF_REPO/recipes/tttd" ]; t
     echo "REEF_REPO=$REEF_REPO is not a Reef checkout; submit the job from the repository root" >&2
     exit 1
 fi
-# shellcheck disable=SC2034  # read by the job scripts that source this file
 EXAMPLE_DIR="$REEF_REPO/recipes/tttd/examples/tttd"
 
 REEF_WORK_ROOT=${REEF_WORK_ROOT:-$HOME/orcd/scratch/reef-work}
@@ -58,11 +57,16 @@ in_container() {
             environment+=("APPTAINERENV_$name=${!name}")
         fi
     done
+    # Reef runs from the checkout, not an install, so its entry points (SGLang
+    # finds Reef's scheduler plugin through one) are written as metadata first.
+    local metadata="$REEF_WORK_ROOT/checkout-metadata"
+    local prelude="python3 '$EXAMPLE_DIR/apptainer/checkout_metadata.py' '$REEF_REPO/pyproject.toml' '$metadata'"
+    prelude+=" && export PYTHONPATH='$metadata':\$PYTHONPATH_PREFIX\${PYTHONPATH:+:\$PYTHONPATH}"
     env "${environment[@]}" apptainer exec --nv --cleanenv \
         --home "$CONTAINER_HOME" \
         --bind "$binds" \
         "${@:1:$#-1}" \
-        "$REEF_SIF" bash -c "export PYTHONPATH=\$PYTHONPATH_PREFIX\${PYTHONPATH:+:\$PYTHONPATH}; $command"
+        "$REEF_SIF" bash -c "$prelude && $command"
 }
 
 # SIGKILL a process and everything below it, children first found, so none

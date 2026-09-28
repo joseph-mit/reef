@@ -79,6 +79,16 @@ wait_for_summary() {
     done
 }
 
+# The end of the stack's log, where a start-up error explains itself.
+show_failure() {
+    local log="$1/reef.log"
+    if [ -f "$log" ]; then
+        echo "--- last lines of $log ---" >&2
+        grep -v '^ *[\^~]*$' "$log" | tail -n 25 >&2
+        echo "---" >&2
+    fi
+}
+
 # GPU processes that belong to this job; on a shared node nvidia-smi may list
 # other users' processes too.
 job_gpu_processes() {
@@ -143,11 +153,13 @@ for method in $SMOKE_METHODS; do
         if ! TTTD_METHOD=$method TTTD_DRIVER=local \
             in_container "cd '$EXAMPLE_DIR' && bash run.sh" > "$RESULTS/$method/phase2.out" 2>&1; then
             echo "phase 2 failed; see $RESULTS/$method/phase2.out" >&2
+            show_failure "$state"
             status=failed
         fi
         kill_job_processes
     else
         echo "phase 1 failed; see $RESULTS/$method/phase1.out" >&2
+        show_failure "$state"
         status=failed
     fi
 

@@ -320,3 +320,29 @@ def test_harbor_agent_builds_the_shared_run_and_writes_the_best_program(monkeypa
     assert context.metadata["reef"]["start_step"] == 0
     assert context.metadata["reef"]["next_step"] == 1
     assert len(context.metadata["reef"]["agent_record_ids"]) == 4
+
+
+@pytest.mark.unit
+def test_checkout_metadata_lets_sglang_find_reefs_plugin_without_an_install(tmp_path) -> None:
+    import subprocess
+
+    spec = importlib.util.spec_from_file_location("checkout_metadata", EXAMPLE / "apptainer" / "checkout_metadata.py")
+    checkout_metadata = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(checkout_metadata)
+
+    checkout_metadata.write_metadata(ROOT / "pyproject.toml", tmp_path)
+    # -S keeps this environment's own Reef install out of the lookup.
+    found = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-c",
+            "import importlib.metadata as m; print({e.name: e.value for e in m.entry_points(group='sglang.srt.plugins')})",
+        ],
+        env={"PYTHONPATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    assert "'reef': 'reef.train.slime_backend.reef_adapters.sglang.plugin:install_sglang_plugin'" in found

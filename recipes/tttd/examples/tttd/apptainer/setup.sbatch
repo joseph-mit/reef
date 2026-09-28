@@ -90,6 +90,10 @@ from reef.train.slime_backend.loss_families import resolve_loss_family
 for family in ('ppottt', 'spottt', 'tttd'):
     resolve_loss_family(family)
 print('  reef, reef_client and the ppottt, spottt and tttd recipes import')
+from importlib.metadata import entry_points
+plugins = {entry.name: entry.value for entry in entry_points(group='sglang.srt.plugins')}
+assert 'reef' in plugins, f'SGLang cannot find Reef plugin; registered: {plugins}'
+print('  SGLang finds Reef plugin:', plugins['reef'])
 EOF"
 in_container "cd '$EXAMPLE_DIR' && python3 apptainer/judge_selftest.py"
 
