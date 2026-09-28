@@ -56,7 +56,7 @@ class _TestAlgorithm(SlimeAlgorithm):
 
 
 #: The cookbook families plus the two plain ones tests/conftest.py registers.
-_ALL_FAMILIES = ("openclawrl", "pg", "ppottt", "sao", "sft", "tttd")
+_ALL_FAMILIES = ("openclawrl", "pg", "ppottt", "sao", "sft", "spottt", "tttd")
 
 
 @pytest.mark.unit

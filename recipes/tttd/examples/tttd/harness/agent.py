@@ -39,6 +39,7 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         max_workers: int = 32,
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
         algorithm: str = "ttt-discover",
+        train: bool = True,
     ) -> None:
         super().__init__(
             scorer,
@@ -58,6 +59,10 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         # The report tag the scenario's recipe accepts: the same search feeds
         # tttd and the single-stream recipes, which check it on ingest.
         self.algorithm = algorithm
+        # A search-only run still reports every score, marked ineligible for
+        # training through Reef's framework-neutral opt-out, so the records
+        # stay comparable with a training run's while the weights never move.
+        self.train = train
 
     def _rollout(
         self,
@@ -80,23 +85,27 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
             agent_record_id=agent_record_id,
         )
 
+        metadata: dict[str, Any] = {
+            "comparison_set": comparison_set,
+            "algorithm": self.algorithm,
+            "step": step,
+            "group": group_index,
+            "rollout": rollout_index,
+            "groups_per_step": self.groups_per_step,
+            "rollouts_per_group": self.rollouts_per_group,
+            "parent_id": parent.candidate_id,
+            "grandparent_id": parent.parent_id or "",
+            "search_value": result.search_value,
+        }
+        if not self.train:
+            metadata["training"] = {"eligible": False}
         self.client.report(
             self.scenario,
             {
                 "score": result.reward,
                 "feedback": result.error,
                 "references": [agent_record_id],
-                "metadata": {
-                    "comparison_set": comparison_set,
-                    "algorithm": self.algorithm,
-                    "step": step,
-                    "group": group_index,
-                    "rollout": rollout_index,
-                    "groups_per_step": self.groups_per_step,
-                    "rollouts_per_group": self.rollouts_per_group,
-                    "parent_id": parent.candidate_id,
-                    "search_value": result.search_value,
-                },
+                "metadata": metadata,
             },
             extra_headers=release_headers,
         )

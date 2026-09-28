@@ -95,6 +95,7 @@ class HarborAgent(BaseAgent):
             invalid_reward=invalid_reward,
             max_workers=MAX_WORKERS,
             algorithm=METHOD.algorithm,
+            train=METHOD.train,
             request_builder=TTTDChatRequestBuilder(
                 max_new_tokens=MAX_NEW_TOKENS,
                 temperature=temperature,
@@ -124,6 +125,7 @@ class HarborAgent(BaseAgent):
             ReefTrainingStatusClient(SERVICE_URL, token=TOKEN),
             TTTDRunStateStore(SEARCH_STATE_PATH, identity),
             emit=lambda event: self.logger.info("TTTD event: %s", event),
+            wait_for_training=METHOD.train,
         )
         outcome = await asyncio.to_thread(controller.run, STEPS)
 

@@ -344,7 +344,9 @@ def test_entrypoints_derive_the_same_state_root_as_the_harness(monkeypatch, tmp_
         assert namespace["STATE_DIR"] == state_dir(example_dir, method_named(name), "erdos_min_overlap")
 
 
-@pytest.mark.parametrize("method_name", ["tttd", "ppottt", "ppottt-smoke"])
+@pytest.mark.parametrize(
+    "method_name", ["tttd", "tttd-mean", "ppottt", "ppottt-smoke", "spottt", "spottt-smoke", "search-only"]
+)
 def test_every_method_config_exists_and_its_grid_matches_the_driver_batch(method_name):
     import yaml
 
@@ -364,3 +366,52 @@ def test_every_method_config_exists_and_its_grid_matches_the_driver_batch(method
     minibatch = config["reef"].get("minibatch_size", 0)
     if minibatch:
         assert grid % minibatch == 0
+
+
+def test_reef_harness_sends_lineage_and_can_opt_out_of_training():
+    client = _Client()
+    harness = ReefTTTDiscoverHarness(
+        client,
+        _scorer(),
+        "Improve the number.",
+        scenario="discovery",
+        release_id="checkpoint-v1",
+        model="reef",
+        groups_per_step=1,
+        rollouts_per_group=1,
+        max_workers=1,
+        train=False,
+    )
+    seed = harness.archive.candidates[0]
+
+    harness.run_step(0)
+
+    metadata = client.reports[0][1]["metadata"]
+    assert metadata["parent_id"] == seed.candidate_id
+    assert metadata["grandparent_id"] == ""
+    assert metadata["training"] == {"eligible": False}
+
+
+def test_trained_reports_carry_no_training_opt_out():
+    client = _Client()
+    harness = ReefTTTDiscoverHarness(
+        client,
+        _scorer(),
+        "x",
+        scenario="discovery",
+        release_id="checkpoint-v1",
+        model="reef",
+        groups_per_step=1,
+        rollouts_per_group=1,
+        max_workers=1,
+    )
+
+    harness.run_step(0)
+
+    assert "training" not in client.reports[0][1]["metadata"]
+
+
+def test_only_search_only_skips_training():
+    from recipes.tttd.examples.tttd.harness.methods import METHODS
+
+    assert [name for name, method in METHODS.items() if not method.train] == ["search-only"]
