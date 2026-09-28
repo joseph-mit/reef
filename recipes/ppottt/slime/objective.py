@@ -41,7 +41,7 @@ def get_terminal_reward_advantages_and_returns(
     ``A_t = reward - V_t`` and the return target is ``reward``: the one-step
     episode of test-time discovery, where each rollout is a whole attempt.
     The discount and trace parameters stay configurable so a variant that
-    treats an archive lineage as a multi-step trajectory can reuse the code.
+    treats a chain of archive states as a multi-step trajectory can reuse the code.
 
     Values are gathered across context-parallel ranks before the recurrence
     and the results sliced back afterwards, matching the SAO helper. Returned
