@@ -111,9 +111,16 @@ class PpotttAlgorithm(SlimeAlgorithm):
         if critic_group is None:
             raise RuntimeError("ppottt requires a value model, but the bridge was booted without one")
         plan = self._schedule.plan(rollout_id)
+        # Each critic pass reads values before it updates. The first pass
+        # reads the critic as it stood before this step's rewards, which is
+        # PPO's V_old; later passes have already fit those rewards, and a
+        # baseline that has seen the reward it is subtracted from shrinks the
+        # advantage toward zero. The actor gets the first pass's values.
         critic_values = None
-        for _ in range(plan.critic_updates):
-            critic_values = resolve(critic_group.async_train(rollout_id, rollout_data_refs))
+        for update in range(plan.critic_updates):
+            values = resolve(critic_group.async_train(rollout_id, rollout_data_refs))
+            if update == 0:
+                critic_values = values
         actor_results: list[Any] = []
         if plan.train_actor:
             actor_results = list(

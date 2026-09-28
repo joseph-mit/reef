@@ -393,9 +393,16 @@ def _bridge_harness(tmp_path, *, critic_only_steps=0):
     from tests.reef_service.test_sao_bridge import _FakeRolloutManager, _RecordingGroup
     from reef.train.slime_backend.reef_adapters import bridge
 
+    class _RefittingCritic(_RecordingGroup):
+        """Returns different values on each pass, as a critic that trains between passes would."""
+
+        def async_train(self, rollout_id, rollout_data_ref, external_data=None):
+            super().async_train(rollout_id, rollout_data_ref, external_data)
+            return [{"values": [0.25 * len(self.train_calls)]}]
+
     template = str(tmp_path / "checkpoint-{rollout_id}")
     actor_group = _RecordingGroup(template)
-    critic_group = _RecordingGroup(template, critic=True)
+    critic_group = _RefittingCritic(template, critic=True)
     actor = bridge.TrainBridgeActorImpl(
         actor_group,
         _FakeRolloutManager(["packed"]),
@@ -439,7 +446,8 @@ def test_training_step_fits_the_critic_twice_then_moves_the_policy(tmp_path, _lo
     assert result.outcome == "complete"
     assert len(critic_group.train_calls) == 2
     assert len(actor_group.train_calls) == 1
-    # The actor's advantages come from the last critic pass's values.
+    # The actor's advantages use the values read before the critic's first
+    # update on this step (PPO's V_old), not the refitted second pass.
     assert actor_group.external_data == [[{"values": [0.25]}]]
     assert result.metrics["ppottt/critic_updates"] == 2
     assert result.metrics["ppottt/actor_trained"] == 1

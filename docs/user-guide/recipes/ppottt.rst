@@ -81,7 +81,10 @@ The objective lives in the Slime flags of ``serve.ppottt.yaml``:
 ``--eps-clip 0.2``, ``--value-clip 0.2``, ``--gamma 1.0``, ``--lambd 1.0``,
 ``--normalize-advantages``, ``--kl-coef 0.1``, and for the critic
 ``--critic-lr 5e-6``, ``--critic-steps-per-actor 2`` and
-``--num-critic-only-steps 2``. Advantage whitening matters here: rewards of
+``--num-critic-only-steps 2``. The actor's advantages use the values the critic
+read before its first update of the step, PPO's old value estimate, so a
+second critic pass refines the critic without leaking the step's rewards into
+the baseline. Advantage whitening matters here: rewards of
 valid programs cluster tightly while invalid programs score zero, and
 unlike TTT-Discover's entropic weights PPO is not invariant to that scale.
 
