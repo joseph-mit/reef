@@ -32,7 +32,7 @@ The example lives with TTT-Discover's, since the search is shared: `TTTD_METHOD=
 | KL to the frozen base | centred on the advantages | `-kl_coef * KL` in the per-token reward, actor only |
 | GPUs in the shipped config | 2 | 4 (the critic is a second full model) |
 
-Two of those rows change more than the baseline: the objective and the loss. A comparison that wants to isolate the critic should also run a group-mean baseline on the same grid, not read ppottt against `tttd` alone.
+Two of those rows change more than the baseline: the objective and the loss. A comparison that wants to isolate the critic should read ppottt against `tttd-mean`, TTT-Discover's grid with a group-mean baseline, not against `tttd` alone; `TTTD_METHOD=tttd-mean` runs it.
 
 ## Design notes
 

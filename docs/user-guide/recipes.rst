@@ -12,6 +12,9 @@ A recipe is picked along two axes: **what it evolves**, and **how it learns**.
 |                         |                                                  |                                          |
 |                         | ``openclawrl``: multi-turn traffic,              | ``ppottt``: the same search, trained     |
 |                         | reward read from the next state                  | with a learned critic instead of a group |
+|                         |                                                  |                                          |
+|                         |                                                  | ``spottt``: the same search, with a      |
+|                         |                                                  | baseline from past outcomes              |
 +-------------------------+--------------------------------------------------+------------------------------------------+
 | **Harness:** prompts,   | ``skillclaw``: grows a skill pool from           | not available                            |
 | rules, skills, config,  | the failures in its own served traffic           |                                          |
@@ -33,6 +36,9 @@ Pick by the signal your workload can produce.
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+
 | Scored attempts at one problem, with no       | `ppottt <recipes/ppottt.rst>`__                 | model weights | yes        |
 | sibling group per parent                      |                                                 |               |            |
++-----------------------------------------------+-------------------------------------------------+---------------+------------+
+| Scored attempts at one problem, with neither  | `spottt <recipes/spottt.rst>`__                 | model weights | yes        |
+| siblings nor a critic                         |                                                 |               |            |
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+
 | Agent conversations without reports           | `openclawrl <recipes/openclawrl.rst>`__         | model weights | yes        |
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+
