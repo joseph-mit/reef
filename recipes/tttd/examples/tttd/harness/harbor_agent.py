@@ -20,29 +20,34 @@ from harbor.models.agent.context import AgentContext
 from reef_client import ReefClient
 
 from .agent import ReefTTTDiscoverHarness
+from .methods import DEFAULT_METHOD, method_named, scenario_name, state_dir
 from .run_controller import ReefTrainingStatusClient, TTTDRunController, TTTDRunIdentity, TTTDRunStateStore
 from .scorer import JudgeScorer, _codeblock_body
 from .search import TTTDChatRequestBuilder
 
 SERVICE_URL = "http://127.0.0.1:8900"  # the Reef run.sh started
-RECIPE = "tttd"  # matches serve.yaml
-TOKEN = "reef-local"  # matches serve.yaml
+TOKEN = "reef-local"  # matches every serve*.yaml
 JUDGE_URL = "http://127.0.0.1:8082"  # the task's judge, published by its compose file
 SOLUTION_PATH = "/workspace/solution.py"
+EXAMPLE_DIR = Path(__file__).resolve().parents[1]
 
-# Everything that follows the chosen task, derived from run.sh's one variable.
+# Everything that follows the chosen task and training method, derived from
+# run.sh's two variables.
 TASK = os.environ.get("TTTD_TASK", "erdos_min_overlap")
-SCENARIO = "tttd-" + TASK.replace("_", "-")
-SEARCH_STATE_PATH = Path(__file__).resolve().parents[1] / "work" / TASK / "tttd-search-state.json"
+METHOD = method_named(os.environ.get("TTTD_METHOD", DEFAULT_METHOD))
+SCENARIO = scenario_name(METHOD, TASK)
+SEARCH_STATE_PATH = state_dir(EXAMPLE_DIR, METHOD, TASK) / f"{METHOD.name}-search-state.json"
 
 # The step grid, read from the stack config rather than repeated here: Reef
 # trains only after exactly groups_per_step x rollouts_per_group reports
 # arrive, so a harness that disagreed would fail on the training timeout.
-_STACK = yaml.safe_load((Path(__file__).resolve().parents[1] / "serve.yaml").read_text())
+_STACK = yaml.safe_load((EXAMPLE_DIR / METHOD.config).read_text())
 GROUPS_PER_STEP = _STACK["reef"]["groups_per_step"]
 ROLLOUTS_PER_GROUP = _STACK["reef"]["rollouts_per_group"]
 STEPS = _STACK["training"]["steps"]
 MAX_NEW_TOKENS = _STACK["training"]["max_new_tokens"]
+# A reduced smoke turns thinking off so a short completion still reaches code.
+ENABLE_THINKING = bool(_STACK["training"].get("enable_thinking", True))
 MAX_WORKERS = 256 if TASK.startswith("circle_packing") else 512  # packing needs the headroom
 
 
@@ -73,7 +78,7 @@ class HarborAgent(BaseAgent):
         temperature = 1.0
         top_p = 1.0
         top_k = -1
-        enable_thinking = True
+        enable_thinking = ENABLE_THINKING
         exploration = 1.0
         invalid_reward = 0.0
 
@@ -89,6 +94,7 @@ class HarborAgent(BaseAgent):
             exploration=exploration,
             invalid_reward=invalid_reward,
             max_workers=MAX_WORKERS,
+            algorithm=METHOD.algorithm,
             request_builder=TTTDChatRequestBuilder(
                 max_new_tokens=MAX_NEW_TOKENS,
                 temperature=temperature,
@@ -100,7 +106,7 @@ class HarborAgent(BaseAgent):
         identity = TTTDRunIdentity(
             scenario=SCENARIO,
             model=self.model_name,
-            recipe=RECIPE,
+            recipe=METHOD.name,
             inference_path=inference_path,
             instruction_sha256=hashlib.sha256(instruction.encode("utf-8")).hexdigest(),
             groups_per_step=GROUPS_PER_STEP,

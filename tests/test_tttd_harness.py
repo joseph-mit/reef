@@ -271,3 +271,96 @@ def test_sandbox_environment_excludes_operator_secrets(monkeypatch):
     result = execute_program(source, entrypoint="entrypoint", timeout_s=30, max_cpus=1)
     assert result.result["token"] is None
     assert result.result["path"] is True
+
+
+def test_reef_harness_tags_reports_for_the_scenarios_recipe_and_runs_single_attempt_groups():
+    client = _Client()
+    harness = ReefTTTDiscoverHarness(
+        client,
+        _scorer(),
+        "Improve the number.",
+        scenario="discovery",
+        release_id="checkpoint-v1",
+        model="reef",
+        groups_per_step=1,
+        rollouts_per_group=1,
+        max_workers=1,
+        algorithm="ppottt",
+    )
+
+    results = harness.run_step(0)
+
+    assert len(results) == 1
+    assert [report[1]["metadata"]["algorithm"] for report in client.reports] == ["ppottt"]
+    assert client.reports[0][1]["metadata"]["rollouts_per_group"] == 1
+
+
+def test_harness_still_rejects_empty_grids():
+    for groups, rollouts in ((0, 1), (1, 0)):
+        with pytest.raises(ValueError, match="must be positive"):
+            TTTDiscoverHarness(
+                lambda payload: payload,
+                _scorer(),
+                "x",
+                model="m",
+                groups_per_step=groups,
+                rollouts_per_group=rollouts,
+            )
+
+
+def test_methods_keep_tttd_paths_and_separate_every_other_method(tmp_path):
+    from recipes.tttd.examples.tttd.harness.methods import METHODS, method_named, scenario_name, state_dir
+
+    tttd = method_named("tttd")
+    assert scenario_name(tttd, "erdos_min_overlap") == "tttd-erdos-min-overlap"
+    assert state_dir(tmp_path, tttd, "erdos_min_overlap") == tmp_path / "work" / "erdos_min_overlap"
+
+    ppottt = method_named("ppottt")
+    assert scenario_name(ppottt, "erdos_min_overlap") == "ppottt-erdos-min-overlap"
+    assert state_dir(tmp_path, ppottt, "erdos_min_overlap") == tmp_path / "work" / "ppottt" / "erdos_min_overlap"
+    assert len({scenario_name(method, "t") for method in METHODS.values()}) == len(METHODS)
+
+    with pytest.raises(ValueError, match="unknown TTTD_METHOD"):
+        method_named("grpo")
+
+
+def test_entrypoints_derive_the_same_state_root_as_the_harness(monkeypatch, tmp_path):
+    import runpy
+    import types
+
+    from recipes.tttd.examples.tttd.harness.methods import method_named, state_dir
+
+    example_dir = REPO_ROOT / "recipes" / "tttd" / "examples" / "tttd"
+    run_script = (example_dir / "run.sh").read_text()
+    assert 'TTTD_STATE_DIR="$PWD/work/$TTTD_TASK"' in run_script
+    assert 'TTTD_STATE_DIR="$PWD/work/$TTTD_METHOD/$TTTD_TASK"' in run_script
+
+    monkeypatch.delenv("TTTD_TASK", raising=False)
+    monkeypatch.setitem(sys.modules, "reef_eval", types.SimpleNamespace(Lab=None))
+    monkeypatch.setattr("asyncio.run", lambda coroutine: coroutine.close())
+    for name in ("tttd", "ppottt"):
+        monkeypatch.setenv("TTTD_METHOD", name)
+        namespace = runpy.run_path(str(example_dir / "run.py"))
+        assert namespace["STATE_DIR"] == state_dir(example_dir, method_named(name), "erdos_min_overlap")
+
+
+@pytest.mark.parametrize("method_name", ["tttd", "ppottt", "ppottt-smoke"])
+def test_every_method_config_exists_and_its_grid_matches_the_driver_batch(method_name):
+    import yaml
+
+    from recipes.tttd.examples.tttd.harness.methods import method_named
+
+    method = method_named(method_name)
+    example_dir = REPO_ROOT / "recipes" / "tttd" / "examples" / "tttd"
+    config = yaml.safe_load((example_dir / method.config).read_text())
+    run_script = (example_dir / "run.sh").read_text()
+    driver = config["services"][0]["command"]
+    global_batch = int(re.search(r"--global-batch-size=(\d+)", driver).group(1))
+    grid = config["reef"]["groups_per_step"] * config["reef"]["rollouts_per_group"]
+
+    # Reef trains only once the whole grid has reported, as one Slime batch.
+    assert grid == global_batch
+    assert f"config={method.config}" in run_script
+    minibatch = config["reef"].get("minibatch_size", 0)
+    if minibatch:
+        assert grid % minibatch == 0

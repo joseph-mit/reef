@@ -1,0 +1,173 @@
+# PPO-TTT on the TTT-Discover search: TTTD_METHOD=ppottt ./run.sh
+#
+# Same model, LoRA actor, task and sampling budget as serve.yaml (8 parents x
+# 64 attempts per step); the grouped entropic advantage is replaced by
+# standard PPO: a clipped policy loss against the sampler's log-probabilities
+# and a scalar critic that supplies the baseline, so no attempt needs a
+# sibling to train. Every value is literal except the two run.sh computes:
+# TTTD_STATE_DIR and REEF_INFERENCE_HOST.
+#
+# The critic is a full-parameter copy of the base model with a zero-initialised
+# value head (Reef keeps LoRA on the actor only). Slime colocates it on the
+# actor GPUs and offloads whichever model is idle, so it costs memory time
+# rather than extra GPUs; four GPUs leave headroom for its optimizer state.
+# The checkpoint preflight wants roughly 16x the model size free on disk,
+# since the critic doubles the training state.
+
+run_dir: ${TTTD_STATE_DIR}/stack
+ready_timeout: 3600
+
+# Service processes launch locally; Slime owns distributed GPU model workers.
+execution:
+  training: ray
+  rollout: ray
+
+reef:
+  host: 127.0.0.1
+  model_path: work/model
+  port: 8900
+  recipe: recipes.ppottt.recipe:PPOTTTRecipe
+  token: reef-local
+  groups_per_step: 8
+  rollouts_per_group: 64
+  # One pass over the step's 512 rollouts in four optimizer steps, the usual
+  # LLM-PPO setting; the old policy is the sampler, so later minibatches are
+  # mildly off-policy and the clip bounds the update.
+  ppo_epochs: 1
+  minibatch_size: 128
+  shuffle_minibatches: true
+  checkpoint_every_n_versions: 2
+  ray_namespace: reef
+  ray_actor_name: reef-train-bridge
+  inference_timeout_s: 7200
+  # A step trains the critic twice and the actor once, each after a reload.
+  train_timeout_s: 14400
+  inference_backend_factory: reef.train.slime_backend.reef_adapters.sglang.chat.SGLangChatTrainingInferenceBackend
+  artifact_repository: ${TTTD_STATE_DIR}/artifacts.git
+  artifact_work_dir: ${TTTD_STATE_DIR}/artifact-work
+  artifact_cache_dir: ${TTTD_STATE_DIR}/artifact-cache
+  agent_record_dir: ${TTTD_STATE_DIR}/agent-record
+
+observability:
+  wandb:
+    enabled: false
+    project: reef
+    directory: ${TTTD_STATE_DIR}/wandb
+
+training:
+  num_gpus: 4
+  # The grid and completion limit. harness/harbor_agent.py reads these same
+  # keys, so the harness and the stack cannot disagree about the step.
+  # The paper's 50 steps. The first two train the critic only (search still
+  # runs), so a shorter run must keep steps above --num-critic-only-steps.
+  steps: 50
+  max_new_tokens: 26000
+  checkpoint_dir: ${TTTD_STATE_DIR}/checkpoints
+  checkpoint_retention:
+    max_storage_fraction: 0.8
+    min_free_space_fraction: 0.1
+    policy: latest
+
+services:
+  - name: slime-driver
+    command: >-
+      "${REEF_PYTHON}" -m reef.train.slime_backend.reef_adapters.driver
+      --hf-checkpoint=${reef.model_path}
+      --load=${training.checkpoint_dir}/megatron
+      --ref-load=${reef.model_path}
+      --save=${training.checkpoint_dir}/megatron
+      --save-hf=${training.checkpoint_dir}/hf/{rollout_id}
+      --save-interval=${reef.checkpoint_every_n_versions}
+      --critic-save=${training.checkpoint_dir}/critic
+      --reef-checkpoint-max-storage-fraction=${training.checkpoint_retention.max_storage_fraction}
+      --reef-checkpoint-min-free-space-fraction=${training.checkpoint_retention.min_free_space_fraction}
+      --reef-checkpoint-policy=${training.checkpoint_retention.policy}
+      --megatron-to-hf-mode=bridge
+      --num-rollout=${training.steps}
+      --rollout-batch-size=${reef.groups_per_step}
+      --n-samples-per-prompt=${reef.rollouts_per_group}
+      --global-batch-size=512
+      --disable-rollout-global-dataset
+      --actor-num-nodes=1
+      --actor-num-gpus-per-node=${training.num_gpus}
+      --rollout-num-gpus=${training.num_gpus}
+      --rollout-num-gpus-per-engine=1
+      --num-gpus-per-node=${training.num_gpus}
+      --colocate
+      --tensor-model-parallel-size=2
+      --pipeline-model-parallel-size=1
+      --context-parallel-size=1
+      --expert-model-parallel-size=1
+      --expert-tensor-parallel-size=1
+      --padded-vocab-size=151936
+      --position-embedding-type=rope
+      --rotary-base=1000000
+      --swiglu
+      --disable-bias-linear
+      --normalization=RMSNorm
+      --group-query-attention
+      --qk-layernorm
+      --seq-length=${TTTD_SEQ_LENGTH}
+      --use-dynamic-batch-size
+      --max-tokens-per-gpu=${TTTD_MAX_TOKENS_PER_GPU}
+      --recompute-granularity=full
+      --recompute-method=uniform
+      --recompute-num-layers=1
+      --megatron-lora-rank=32
+      --megatron-lora-alpha=32
+      --megatron-lora-dropout=0
+      --megatron-lora-target-modules
+      linear_qkv linear_proj linear_fc1 linear_fc2
+      --check-lora-weight-equal
+      --verify-lora-base-weights
+      --optimizer=adam
+      --lr=4e-5
+      --lr-decay-style=constant
+      --override-opt-param-scheduler
+      --weight-decay=0
+      --adam-beta1=0.9
+      --adam-beta2=0.95
+      --adam-eps=1e-8
+      --clip-grad=0
+      --loss-type=policy_loss
+      --use-rollout-logprobs
+      --advantage-estimator=ppo
+      --use-critic
+      --critic-lr=5e-6
+      --critic-steps-per-actor=2
+      --num-critic-only-steps=2
+      --eps-clip=0.2
+      --value-clip=0.2
+      --gamma=1.0
+      --lambd=1.0
+      --normalize-advantages
+      --kl-coef=0.1
+      --entropy-coef=0
+      --rollout-temperature=1
+      --rollout-max-response-len=30000
+      --rollout-max-context-len=30000
+      --sglang-context-length=30000
+      --sglang-router-port=30000
+      --sglang-mem-fraction-static=0.5
+      --sglang-disable-prefill-cuda-graph
+      --sglang-cuda-graph-max-bs-decode=128
+      --train-env-vars='{"PYTORCH_CUDA_ALLOC_CONF":"max_split_size_mb:512"}'
+      --log-probs-chunk-size=${TTTD_LOG_PROBS_CHUNK_SIZE}
+      --attention-dropout=0
+      --hidden-dropout=0
+      --accumulate-allreduce-grads-in-fp32
+      --attention-softmax-in-fp32
+      --attention-backend=flash
+    ready: test -f "$REEF_BRIDGE_READY_FILE"
+    ready_timeout: 3600
+    env:
+      REEF_RAY_NAMESPACE: reef
+      REEF_RAY_ACTOR_NAME: reef-train-bridge
+      CUDA_DEVICE_MAX_CONNECTIONS: "1"
+      NCCL_NVLS_ENABLE: "0"
+
+  - name: reef
+    command: ["${REEF_PYTHON}", "-m", "reef.service"]
+    ready: curl -sf http://127.0.0.1:${reef.port}/healthz
+    ready_timeout: 120
+    depends_on: [slime-driver]

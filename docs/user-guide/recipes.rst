@@ -10,8 +10,8 @@ A recipe is picked along two axes: **what it evolves**, and **how it learns**.
 | **Model weights**       | ``sao``: feedback on each attempt over a stream  | ``tttd``: repeated attempts at one       |
 |                         | of tasks                                         | problem, at test time                    |
 |                         |                                                  |                                          |
-|                         | ``openclawrl``: multi-turn traffic,              |                                          |
-|                         | reward read from the next state                  |                                          |
+|                         | ``openclawrl``: multi-turn traffic,              | ``ppottt``: the same search, trained     |
+|                         | reward read from the next state                  | with a learned critic instead of a group |
 +-------------------------+--------------------------------------------------+------------------------------------------+
 | **Harness:** prompts,   | ``skillclaw``: grows a skill pool from           | not available                            |
 | rules, skills, config,  | the failures in its own served traffic           |                                          |
@@ -30,6 +30,9 @@ Pick by the signal your workload can produce.
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+
 | A fixed grid of sibling attempts at one       | `tttd <recipes/tttd.rst>`__                     | model weights | yes        |
 | problem                                       |                                                 |               |            |
++-----------------------------------------------+-------------------------------------------------+---------------+------------+
+| Scored attempts at one problem, with no       | `ppottt <recipes/ppottt.rst>`__                 | model weights | yes        |
+| sibling group per parent                      |                                                 |               |            |
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+
 | Agent conversations without reports           | `openclawrl <recipes/openclawrl.rst>`__         | model weights | yes        |
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+

@@ -25,7 +25,9 @@ harness/              agent harness (PUCT search + Reef adapter)
   agent.py              ReefTTTDiscoverHarness rollout/report adapter
   run_controller.py     training barrier + paired PUCT resume state
   harbor_agent.py       Harbor BaseAgent (imports harbor package)
+  methods.py            the training methods TTTD_METHOD selects, and their state paths
 serve.yaml            Reef + Ray + Slime/Megatron + SGLang stack config
+serve.ppottt*.yaml    the same stack trained with PPO and a critic (recipes/ppottt)
 run.py                one reef-eval episode owning the complete TTT trajectory
 run.sh                starts the reef training stack, then runs run.py
 pyproject.toml        makes the harness importable
@@ -206,6 +208,41 @@ To add another problem, create a sibling under `harbor/`, write a `score.py`
 with a `grade(artifact)` function, and point the values in the table above at
 it. The harness scores every generated solution by POSTing it to the task's
 judge, so no task-specific imports enter the shared harness.
+
+## Other training methods
+
+The search does not depend on how its attempts are trained, so the same
+harness, tasks and verifiers drive other recipes. `TTTD_METHOD` picks one:
+
+| `TTTD_METHOD` | Config | Recipe | GPUs |
+| --- | --- | --- | --- |
+| `tttd` (default) | `serve.yaml` | TTT-Discover, grouped entropic advantages | 2 |
+| `ppottt` | `serve.ppottt.yaml` | [PPO-TTT](../../../ppottt/README.md): clipped PPO with a scalar critic | 4 |
+| `ppottt-smoke` | `serve.ppottt-smoke.yaml` | one 2x2 PPO-TTT step with thinking off | 4 |
+
+```bash
+TTTD_METHOD=ppottt-smoke ./run.sh   # integration check of the whole path
+TTTD_METHOD=ppottt ./run.sh         # 50 steps of 8x64 on Erdős
+```
+
+Every method other than `tttd` keeps its state under `work/<method>/<task>/`
+and its scenario as `<method>-<task>`, so runs of different methods never share
+checkpoints, artifacts or a search archive; `tttd` keeps its original
+`work/<task>/` layout. `harness/methods.py` and `run.sh` must agree on a new
+method's config name, and a test checks that they do, and that each config's
+grid equals its driver's `--global-batch-size`.
+
+On a SLURM cluster, run the script inside one allocation that holds the whole
+stack, for example:
+
+```bash
+srun --gres=gpu:4 --cpus-per-task=64 --mem=256G --time=48:00:00 --pty bash
+cd recipes/tttd/examples/tttd && TTTD_METHOD=ppottt ./run.sh
+```
+
+A run survives a restart of the job: the harness pairs its PUCT archive with
+Reef's durable training commit, so launching the same method and task again
+resumes at the last committed step.
 
 ## Paper fidelity and training ownership
 
