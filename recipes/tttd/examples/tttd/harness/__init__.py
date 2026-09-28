@@ -6,6 +6,8 @@ commit. ``harness.search`` implements the PUCT archive, the search algorithm,
 and generic prompt construction. ``harness.scorer`` provides ``JudgeScorer``
 (HTTP to a judge server) and ``ProgramScorer`` (direct subprocess sandbox).
 ``harness.sandbox`` provides the isolated subprocess executor.
+``harness.methods`` names the training methods the same search can drive
+(``TTTD_METHOD``) and where each keeps its state.
 
 The harness is task-agnostic: it scores every generated solution via a
 ``Scorer`` callable. The task instruction comes from the Harbor task's

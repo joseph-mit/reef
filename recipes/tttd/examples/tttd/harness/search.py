@@ -433,8 +433,10 @@ class _TTTDiscoverHarnessBase:
         action_from_response: Callable[[Mapping[str, Any]], str] | None = None,
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
-        if groups_per_step < 1 or rollouts_per_group < 2:
-            raise ValueError("groups_per_step must be positive and rollouts_per_group must be at least two")
+        # Group-relative recipes need siblings and enforce that on the Reef
+        # side; the search itself runs with any number of attempts per parent.
+        if groups_per_step < 1 or rollouts_per_group < 1:
+            raise ValueError("groups_per_step and rollouts_per_group must be positive")
         self.scorer = scorer
         self._instruction = instruction
         self.model = model

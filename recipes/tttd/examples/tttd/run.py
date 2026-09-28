@@ -7,9 +7,10 @@ One episode:
              an inference through Reef, stamped with its step-grid
              coordinates
     verify — the task's judge scores each attempt
-    learn  — the agent reports the scores; Reef's TTTD recipe waits for
-             one complete step grid (8 groups x 64 rollouts), trains, and
-             serves the updated weights
+    learn  — the agent reports the scores; the selected method's recipe
+             (TTTD by default, see harness/methods.py) waits for one complete
+             step grid (8 groups x 64 rollouts), trains, and serves the
+             updated weights
 
 ``Lab.run`` is reef-eval's one primitive: task in, trusted scored row out.
 """
@@ -30,7 +31,10 @@ if TASK not in TASKS:
     raise SystemExit(f"unknown TTTD_TASK {TASK!r}; choose {', '.join(TASKS)}")
 
 HERE = Path(__file__).resolve().parent
-STATE_DIR = HERE / "work" / TASK
+# The training method run.sh selected. run.sh and harness/methods.py derive the
+# same state root; tttd keeps its original layout.
+METHOD = os.environ.get("TTTD_METHOD", "tttd")
+STATE_DIR = HERE / "work" / TASK if METHOD == "tttd" else HERE / "work" / METHOD / TASK
 AGENT = {"name": "harness:HarborAgent", "model_name": MODEL}
 
 

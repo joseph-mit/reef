@@ -3,6 +3,22 @@
 set -e
 cd "$(dirname "$0")"
 
+# The training method: tttd (the paper's grouped entropic objective) or one
+# of the single-stream recipes listed in harness/methods.py. The search and
+# the tasks are the same for all of them; each has its own deployment config.
+# PPO-TTT's critic is a second full model, so its configs ask for four GPUs.
+TTTD_METHOD=${TTTD_METHOD:-tttd}
+case "$TTTD_METHOD" in
+  tttd) config=serve.yaml ;;
+  ppottt) config=serve.ppottt.yaml; export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3} ;;
+  ppottt-smoke) config=serve.ppottt-smoke.yaml; export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3} ;;
+  *)
+    echo "run.sh: unknown TTTD_METHOD '$TTTD_METHOD' (see harness/methods.py)" >&2
+    exit 1
+    ;;
+esac
+export TTTD_METHOD
+
 # Limit the locally managed Ray cluster to this training stack's GPU pool.
 # On an external cluster, its node configuration determines GPU visibility.
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1}
@@ -29,7 +45,12 @@ export TTTD_TASK
 # serve.yaml: the absolute state root (Ray workers and git resolve relative
 # paths from their own directories) and this machine's IP (slime binds the
 # training engines' router to it, not to localhost).
-export TTTD_STATE_DIR="$PWD/work/$TTTD_TASK"
+# harness/methods.py derives the same path; tttd keeps its original layout.
+if [ "$TTTD_METHOD" = tttd ]; then
+    export TTTD_STATE_DIR="$PWD/work/$TTTD_TASK"
+else
+    export TTTD_STATE_DIR="$PWD/work/$TTTD_METHOD/$TTTD_TASK"
+fi
 export REEF_INFERENCE_HOST=$(hostname -I | awk '{print $1}')
 mkdir -p "$TTTD_STATE_DIR"
 
@@ -40,7 +61,7 @@ fi
 
 # Start the Reef training stack. The Harbor controller waits for the final
 # durable training commit before this script exits and stops the stack.
-python3 -m reef serve -c "$PWD/serve.yaml" > "$TTTD_STATE_DIR/reef.log" 2>&1 &
+python3 -m reef serve -c "$PWD/$config" > "$TTTD_STATE_DIR/reef.log" 2>&1 &
 reef_pid=$!
 cleanup() {
     kill "$reef_pid" 2>/dev/null || true

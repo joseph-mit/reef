@@ -38,6 +38,7 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         invalid_reward: float = 0.0,
         max_workers: int = 32,
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
+        algorithm: str = "ttt-discover",
     ) -> None:
         super().__init__(
             scorer,
@@ -54,6 +55,9 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         self.scenario = scenario
         self.release_id = release_id
         self.inference_path = inference_path
+        # The report tag the scenario's recipe accepts: the same search feeds
+        # tttd and the single-stream recipes, which check it on ingest.
+        self.algorithm = algorithm
 
     def _rollout(
         self,
@@ -84,7 +88,7 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
                 "references": [agent_record_id],
                 "metadata": {
                     "comparison_set": comparison_set,
-                    "algorithm": "ttt-discover",
+                    "algorithm": self.algorithm,
                     "step": step,
                     "group": group_index,
                     "rollout": rollout_index,

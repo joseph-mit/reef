@@ -34,6 +34,8 @@ TRAINING_CONFIGS = (
     "recipes/sao/examples/sao/serve.yaml",
     "recipes/coral/examples/coral_demo/serve.yaml",
     "recipes/tttd/examples/tttd/serve.yaml",
+    "recipes/tttd/examples/tttd/serve.ppottt.yaml",
+    "recipes/tttd/examples/tttd/serve.ppottt-smoke.yaml",
     "recipes/tttd/examples/guidance_ttt/serve.yaml",
 )
 
@@ -56,7 +58,13 @@ def test_training_examples_use_managed_ray_without_reserving_driver_gpus(relativ
     assert services[1]["depends_on"] == ["slime-driver"]
     if "coral" not in relative:
         assert "export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1}" in path.with_name("run.sh").read_text()
-    if "tttd" in relative:
+    if "ppottt" in relative:
+        # The critic is a second full model; run.sh widens the pool to match.
+        assert config["training"]["num_gpus"] == 4
+        assert "export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3}" in path.with_name("run.sh").read_text()
+        assert "--actor-num-gpus-per-node=${training.num_gpus}" in services[0]["command"]
+        assert "--colocate" in services[0]["command"]
+    elif "tttd" in relative:
         assert config["training"]["num_gpus"] == 2
         assert "--actor-num-gpus-per-node=${training.num_gpus}" in services[0]["command"]
         assert "--colocate" in services[0]["command"]
