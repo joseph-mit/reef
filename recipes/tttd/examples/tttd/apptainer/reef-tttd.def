@@ -1,0 +1,89 @@
+# Apptainer image for the TTT-Discover example on hosts without Docker.
+#
+# The same software stack as docker/Dockerfile.reef's `tttd` target, built on
+# the same qualified slime digest, with one difference: Reef itself is not
+# baked in. The job scripts bind the repository checkout and put it on
+# PYTHONPATH, so code changes need no rebuild.
+#
+# Build from the repository root (the %files paths are relative to it):
+#   apptainer build --fakeroot reef-tttd.sif recipes/tttd/examples/tttd/apptainer/reef-tttd.def
+# setup.sbatch does this, with the cache and temporary directories off $HOME.
+
+Bootstrap: docker
+From: slimerl/slime@sha256:a97ec147e37bef050337a9b229036eda00b4aa9c4d02b31a0109dc850f8ca342
+
+%files
+    pyproject.toml /opt/reef-pins/pyproject.toml
+    docker/patch/mcore_parse_hybrid_pattern.py /opt/reef-pins/mcore_parse_hybrid_pattern.py
+
+%post
+    set -eux
+
+    # The base's /etc/pip.conf allows installing into its system interpreter;
+    # every pip call below relies on it, as the Dockerfile's do.
+    export PIP_NO_CACHE_DIR=1
+
+    pip install "transformers==5.12.1" peft
+
+    # Reef's reviewed SGLang pin, whose adapter receiver LoRA publication needs.
+    SGLANG_COMMIT=f7ea06e1e519c569c1d6cb7e1c7b1128cbdbc39f
+    rm -rf /opt/sglang
+    git clone --filter=blob:none https://github.com/sgl-project/sglang.git /opt/sglang
+    git -C /opt/sglang checkout "$SGLANG_COMMIT"
+    pip install -e "/opt/sglang/python[all]" --no-deps
+
+    # Reef's exact Slime pin, without re-resolving the CUDA-matched stack.
+    pip uninstall -y slime
+    (cd /opt/reef-pins && pip install --no-deps --group runtime)
+
+    # Leave exactly one numpy tree behind (see docker/Dockerfile.reef).
+    pip uninstall -y numpy
+    rm -rf /usr/local/lib/python3.12/dist-packages/numpy \
+           /usr/local/lib/python3.12/dist-packages/numpy.libs \
+           /usr/local/lib/python3.12/dist-packages/numpy-*
+    pip install "numpy==1.26.4" scipy
+
+    # Megatron-Bridge for LoRA, with the parse_hybrid_pattern backport the
+    # base's Megatron tree may lack.
+    MCORE_SSM=/root/Megatron-LM/megatron/core/ssm/mamba_hybrid_layer_allocation.py
+    if ! grep -q "def parse_hybrid_pattern" "$MCORE_SSM"; then
+        cat /opt/reef-pins/mcore_parse_hybrid_pattern.py >> "$MCORE_SSM"
+    fi
+    pip install --no-deps "megatron-bridge==0.4.2"
+
+    # The tttd target's solver dependencies for generated Erdos programs.
+    pip install "cvxpy<1.9" "numpy==1.26.4"
+
+    # Reef runs from the bound checkout rather than an install, so its own
+    # light dependencies must be present; pip leaves satisfied ones alone.
+    pip install "numpy==1.26.4" "alembic>=1.13,<2" "sqlalchemy>=2.0,<3" tomli-w aiohttp pyyaml huggingface_hub
+
+    # The base keeps Megatron-LM (and possibly other source checkouts) under
+    # /root. An Apptainer container runs as the calling user, so everything
+    # there has to be readable for the imports to work.
+    chmod -R a+rX /root /opt/sglang /opt/reef-pins
+
+%environment
+    export PYTHONPATH=/opt/sglang/python:/root/Megatron-LM${PYTHONPATH:+:$PYTHONPATH}
+    export PYTHONUNBUFFERED=1
+    export SGLANG_DISABLE_CUDNN_CHECK=1
+
+%test
+    set -e
+    export PYTHONPATH=/opt/sglang/python:/root/Megatron-LM${PYTHONPATH:+:$PYTHONPATH}
+    python - <<'EOF'
+import numpy, scipy.linalg, cvxpy, transformers
+assert numpy.__version__ == "1.26.4", numpy.__version__
+from sglang.srt.server_args import ServerArgs
+from megatron.core.ssm.mamba_hybrid_layer_allocation import parse_hybrid_pattern
+assert parse_hybrid_pattern("M*M*/MM/MM").mtp_num_depths == 2
+from megatron.bridge.peft.lora import LoRA
+from megatron.bridge.models.conversion.param_mapping import ReplicatedMapping
+import alembic, sqlalchemy, tomli_w, aiohttp, yaml, huggingface_hub
+import ray, torch
+print("image ok: torch", torch.__version__, "ray", ray.__version__)
+EOF
+
+%labels
+    org.opencontainers.image.source https://github.com/joseph-mit/reef
+    description Reef TTT-Discover stack (slime base, Reef runtime pins) for Apptainer

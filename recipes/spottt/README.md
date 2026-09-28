@@ -19,7 +19,7 @@ spottt/
   slime/           loss family on Slime's clipped policy_loss, with tttd's frozen-base KL hook
 ```
 
-Run it from the tttd example with `TTTD_METHOD=spottt`, or `TTTD_METHOD=spottt-smoke` for a one-step 2x2 check.
+Run it from the tttd example with `TTTD_METHOD=spottt`, or `TTTD_METHOD=spottt-smoke` for a two-step 2x2 check of the integration path.
 
 ## The tracker
 

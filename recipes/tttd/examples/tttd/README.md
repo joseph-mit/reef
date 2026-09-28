@@ -26,12 +26,15 @@ harness/              agent harness (PUCT search + Reef adapter)
   run_controller.py     training barrier + paired PUCT resume state
   harbor_agent.py       Harbor BaseAgent (imports harbor package)
   methods.py            the training methods TTTD_METHOD selects, and their state paths
+  session.py            the harness and run controller both entry points build
 serve.yaml            Reef + Ray + Slime/Megatron + SGLang stack config
 serve.ppottt*.yaml    the same stack trained with PPO and a critic (recipes/ppottt)
 serve.spottt*.yaml    ... with a baseline from past outcomes (recipes/spottt)
 serve.tttd-mean.yaml  ... with a group-mean baseline, the control for both
 serve.search-only.yaml  the search on frozen weights, the floor of a comparison
 run.py                one reef-eval episode owning the complete TTT trajectory
+run_local.py          the same trajectory without Harbor or Docker (TTTD_DRIVER=local)
+apptainer/            Apptainer image and SLURM jobs for clusters without Docker
 run.sh                starts the reef training stack, then runs run.py
 pyproject.toml        makes the harness importable
 results/              formal result data, generated programs, and plots
@@ -184,13 +187,12 @@ TTTD_TASK=circle_packing_26 ./run.sh
 and sizes the memory limits for it — the packing tasks need a longer context
 (`32768`) on the same GPUs, so they get a smaller per-GPU token budget.
 
-The step grid lives in two places and both must agree, or Reef waits for
-coordinates the harness never sends: `GROUPS_PER_STEP` and
-`ROLLOUTS_PER_GROUP` in `harness/harbor_agent.py`, and `groups_per_step`,
-`rollouts_per_group`, and `--global-batch-size` (their product) in
-`serve.yaml`. A one-step plumbing smoke sets both sides to 2 x 2 and
-`enable_thinking = False`, so a short completion is not spent entirely in the
-reasoning channel before it emits a program.
+The step grid has one source: the harness reads `groups_per_step`,
+`rollouts_per_group`, `steps`, `max_new_tokens` and `enable_thinking` from the
+same config the stack runs (`harness/session.py`), and Slime's
+`--global-batch-size` in that config must equal the grid. A plumbing smoke sets
+a 2 x 2 grid and `enable_thinking: false`, so a short completion is not spent
+entirely in the reasoning channel before it emits a program.
 
 `work/erdos_min_overlap/` holds this problem's checkpoints, artifacts,
 scenario records, and PUCT state; a second problem needs its own directory so
@@ -222,9 +224,9 @@ harness, tasks and verifiers drive other recipes. `TTTD_METHOD` picks one:
 | `tttd` (default) | `serve.yaml` | TTT-Discover, grouped entropic advantages | 2 |
 | `tttd-mean` | `serve.tttd-mean.yaml` | TTT-Discover's grid and loss with a group-mean baseline | 2 |
 | `ppottt` | `serve.ppottt.yaml` | [PPO-TTT](../../../ppottt/README.md): clipped PPO with a scalar critic | 4 |
-| `ppottt-smoke` | `serve.ppottt-smoke.yaml` | one 2x2 PPO-TTT step with thinking off | 4 |
+| `ppottt-smoke` | `serve.ppottt-smoke.yaml` | two 2x2 PPO-TTT steps with thinking off | 4 |
 | `spottt` | `serve.spottt.yaml` | [SPO-TTT](../../../spottt/README.md): baseline from past outcomes, no critic | 2 |
-| `spottt-smoke` | `serve.spottt-smoke.yaml` | one 2x2 SPO-TTT step with thinking off | 2 |
+| `spottt-smoke` | `serve.spottt-smoke.yaml` | two 2x2 SPO-TTT steps with thinking off | 2 |
 | `search-only` | `serve.search-only.yaml` | the same search on frozen weights: reports are not trained on | 2 |
 
 ```bash
@@ -256,7 +258,14 @@ cd recipes/tttd/examples/tttd && TTTD_METHOD=ppottt ./run.sh
 
 A run survives a restart of the job: the harness pairs its PUCT archive with
 Reef's durable training commit, so launching the same method and task again
-resumes at the last committed step.
+resumes at the last committed step. The single-stream configs checkpoint every
+step for that reason; `serve.yaml` keeps TTT-Discover's interval of two.
+
+Where there is no Docker, as on most HPC clusters, `TTTD_DRIVER=local ./run.sh`
+runs the task's judge as a local process instead of through Harbor
+(`run_local.py`), and [`apptainer/`](apptainer/README.md) has the image
+recipe and SLURM jobs for Engaging: setup, a two-step smoke with a SIGKILL and
+resume between the steps, and full runs.
 
 ## Paper fidelity and training ownership
 

@@ -98,7 +98,7 @@ scenario and state directory, so runs never share checkpoints or an archive.
 .. code:: bash
 
    cd recipes/tttd/examples/tttd
-   TTTD_METHOD=ppottt-smoke ./run.sh   # one 2x2 step: checks the integration path
+   TTTD_METHOD=ppottt-smoke ./run.sh   # two 2x2 steps: checks the integration path
    TTTD_METHOD=ppottt ./run.sh         # 50 steps of 8x64 on Erdős, four GPUs
 
 The critic doubles the training state: the checkpoint preflight expects

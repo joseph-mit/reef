@@ -83,7 +83,7 @@ Run the example
 .. code:: bash
 
    cd recipes/tttd/examples/tttd
-   TTTD_METHOD=spottt-smoke ./run.sh   # one 2x2 step: checks the integration path
+   TTTD_METHOD=spottt-smoke ./run.sh   # two 2x2 steps: checks the integration path
    TTTD_METHOD=spottt ./run.sh         # 50 steps of 8x64 on Erdős, two GPUs
 
 The step metrics include ``tracked_fraction``, the share of attempts whose

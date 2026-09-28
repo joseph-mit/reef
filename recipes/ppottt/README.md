@@ -18,7 +18,7 @@ ppottt/
   slime/           loss family, critic cadence, and the terminal-reward GAE hook
 ```
 
-The example lives with TTT-Discover's, since the search is shared: `TTTD_METHOD=ppottt` selects `serve.ppottt.yaml` in [`../tttd/examples/tttd`](../tttd/examples/tttd/README.md), and `TTTD_METHOD=ppottt-smoke` a one-step 2x2 check of the integration path.
+The example lives with TTT-Discover's, since the search is shared: `TTTD_METHOD=ppottt` selects `serve.ppottt.yaml` in [`../tttd/examples/tttd`](../tttd/examples/tttd/README.md), and `TTTD_METHOD=ppottt-smoke` a two-step 2x2 check of the integration path, including a restart between the steps on a cluster without Docker ([`apptainer/`](../tttd/examples/tttd/apptainer/README.md)).
 
 ## What differs from tttd
 
