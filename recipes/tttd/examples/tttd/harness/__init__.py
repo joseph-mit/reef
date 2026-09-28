@@ -8,6 +8,8 @@ and generic prompt construction. ``harness.scorer`` provides ``JudgeScorer``
 ``harness.sandbox`` provides the isolated subprocess executor.
 ``harness.methods`` names the training methods the same search can drive
 (``TTTD_METHOD``) and where each keeps its state.
+``harness.session`` builds the harness and run controller from a deployment
+config, for both the Harbor agent and the Harbor-free ``run_local.py``.
 
 The harness is task-agnostic: it scores every generated solution via a
 ``Scorer`` callable. The task instruction comes from the Harbor task's

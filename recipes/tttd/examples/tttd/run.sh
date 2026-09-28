@@ -23,6 +23,19 @@ case "$TTTD_METHOD" in
 esac
 export TTTD_METHOD
 
+# How each task is run: through Harbor (run.py, which needs Docker for the
+# task's judge) or with the judge as a local process (run_local.py), for
+# machines such as HPC nodes that offer Apptainer but no Docker.
+TTTD_DRIVER=${TTTD_DRIVER:-harbor}
+case "$TTTD_DRIVER" in
+  harbor) driver=run.py ;;
+  local) driver=run_local.py ;;
+  *)
+    echo "run.sh: unknown TTTD_DRIVER '$TTTD_DRIVER' (choose harbor or local)" >&2
+    exit 1
+    ;;
+esac
+
 # Limit the locally managed Ray cluster to this training stack's GPU pool.
 # On an external cluster, its node configuration determines GPU visibility.
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1}
@@ -86,4 +99,4 @@ while ! curl -sf http://127.0.0.1:8900/healthz > /dev/null; do
 done
 
 # Run the learning loop.
-python3 run.py
+python3 "$driver"

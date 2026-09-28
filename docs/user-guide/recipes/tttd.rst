@@ -139,7 +139,10 @@ Run the example
 
 The example starts Ray, Slime, Megatron, SGLang, Reef, reef-eval, and the selected
 Harbor task on one machine. It requires Linux, NVIDIA GPUs, Docker, and the Reef
-training dependencies described in `Installation <../../getting-started/installation.rst>`__. Run the
+training dependencies described in `Installation <../../getting-started/installation.rst>`__. On a
+cluster without Docker, ``TTTD_DRIVER=local ./run.sh`` runs the task's judge
+as a local process instead of through Harbor; the example's ``apptainer/``
+directory has an Apptainer image recipe and SLURM jobs for that case. Run the
 following commands from the repository root:
 
 .. code:: bash
@@ -218,8 +221,8 @@ values when it starts. Slime's ``--global-batch-size`` in that file must equal
    reef.rollouts_per_group | 64 | sibling rollouts sampled from each parent, in ``serve.yaml``.
    training.steps | 1 | search and optimizer steps, in ``serve.yaml``; the Slime command reads it as ``--num-rollout``.
    training.max_new_tokens | 26000 | maximum completion length, in ``serve.yaml``.
-   MAX_WORKERS | 512 | concurrent rollout and evaluator calls, derived from the task in ``harness/harbor_agent.py``; packing uses ``256``.
-   enable_thinking | True | Qwen3 chat-template thinking mode, in ``harness/harbor_agent.py``.
+   max_workers | 512 | concurrent rollout and evaluator calls, derived from the task in ``harness/session.py``; packing uses ``256``.
+   training.enable_thinking | true | Qwen3 chat-template thinking mode, in ``serve.yaml``; the smoke configs turn it off.
    TTTD_SEQ_LENGTH | 30000 | training and serving context length; ``run.sh`` sets it per task, ``32768`` for packing, beside ``TTTD_MAX_TOKENS_PER_GPU`` and ``TTTD_LOG_PROBS_CHUNK_SIZE``.
    num_gpus | 2 | GPU count passed to Slime's training and serving topology in ``serve.yaml``; Ray assigns worker devices, and ``--tensor-model-parallel-size`` sets training parallelism.
    TTTD_STATE_DIR | work/erdos_min_overlap | the durable state root, exported by ``run.sh`` as an absolute path because Ray workers and Git resolve a relative one from their own directories.

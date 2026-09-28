@@ -41,8 +41,8 @@ observability:
 
 training:
   num_gpus: 2
-  # The grid and completion limit. harness/harbor_agent.py reads these same
-  # keys, so the harness and the stack cannot disagree about the step.
+  # The grid and completion limit. The harness (harness/session.py) reads
+  # these same keys, so it and the stack cannot disagree about the step.
   # The paper's 50 steps, for a comparison at the same verifier budget.
   steps: 50
   max_new_tokens: 26000

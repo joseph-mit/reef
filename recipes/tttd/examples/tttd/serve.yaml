@@ -38,8 +38,8 @@ observability:
 
 training:
   num_gpus: 2
-  # The grid and completion limit. harness/harbor_agent.py reads these same
-  # keys, so the harness and the stack cannot disagree about the step.
+  # The grid and completion limit. The harness (harness/session.py) reads
+  # these same keys, so it and the stack cannot disagree about the step.
   steps: 1
   max_new_tokens: 26000
   checkpoint_dir: ${TTTD_STATE_DIR}/checkpoints
