@@ -52,11 +52,11 @@ else
         export APPTAINER_TMPDIR="$REEF_WORK_ROOT/apptainer-tmp"
     fi
     mkdir -p "$APPTAINER_TMPDIR" "$APPTAINER_CACHEDIR"
+    case "$APPTAINER_TMPDIR" in /tmp/*) trap 'rm -rf "$APPTAINER_TMPDIR"' EXIT ;; esac
     echo "  building $REEF_SIF (temporary files in $APPTAINER_TMPDIR)"
     (cd "$REEF_REPO" && apptainer build --fakeroot --force "$REEF_SIF.partial" \
         recipes/tttd/examples/tttd/apptainer/reef-tttd.def)
     mv "$REEF_SIF.partial" "$REEF_SIF"
-    case "$APPTAINER_TMPDIR" in /tmp/*) rm -rf "$APPTAINER_TMPDIR" ;; esac
 fi
 ls -lh "$REEF_SIF"
 

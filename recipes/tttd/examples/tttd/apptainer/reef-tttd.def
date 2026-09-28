@@ -71,6 +71,10 @@ From: slimerl/slime@sha256:a97ec147e37bef050337a9b229036eda00b4aa9c4d02b31a0109d
 %test
     set -e
     export PYTHONPATH=/opt/sglang/python:/root/Megatron-LM${PYTHONPATH:+:$PYTHONPATH}
+    # Importing SGLang creates flashinfer's cache under $HOME, and the finished
+    # image is read-only; jobs give the container a writable home of its own.
+    HOME=$(mktemp -d)
+    export HOME FLASHINFER_WORKSPACE_BASE=$HOME
     python - <<'EOF'
 import numpy, scipy.linalg, cvxpy, transformers
 assert numpy.__version__ == "1.26.4", numpy.__version__
