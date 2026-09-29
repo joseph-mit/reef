@@ -3,6 +3,7 @@
 Run in the image on the job's GPUs:
 
     python3 apptainer/gpu_check.py
+    python3 apptainer/gpu_check.py --burn 90   # load every GPU, then read temperatures
 
 It prints each GPU's temperature, clock and slowdown reasons, its bf16
 matrix-multiply rate, which GPUs can read each other's memory directly (peer
@@ -14,6 +15,7 @@ the GPUs are shared, so the rates are lower bounds.
 
 from __future__ import annotations
 
+import argparse
 import os
 import shutil
 import socket
@@ -43,6 +45,81 @@ def matmul_tflops(device: int, size: int = 8192, repeats: int = 30) -> float:
         left @ right
     torch.cuda.synchronize(device)
     return 2 * size**3 * repeats / (time.perf_counter() - start) / 1e12
+
+
+HEALTH_FIELDS = (
+    "index,pci.bus_id,temperature.gpu,clocks.sm,clocks.max.sm,power.draw,power.limit,"
+    "utilization.gpu,clocks_event_reasons.active"
+)
+
+
+def gpu_health() -> str:
+    """Temperature, clock and slowdown reasons per GPU, from nvidia-smi.
+
+    In the reasons, 0x20 and 0x40 are thermal slowdown and 0x08 a hardware
+    slowdown; 0x01 means idle.
+    """
+    if not shutil.which("nvidia-smi"):
+        return "nvidia-smi not found"
+    health = subprocess.run(
+        ["nvidia-smi", f"--query-gpu={HEALTH_FIELDS}", "--format=csv"], capture_output=True, text=True, check=False
+    )
+    return health.stdout.strip() or health.stderr.strip()
+
+
+def burn(seconds: float, size: int = 8192, batch: int = 20) -> None:
+    """Keep every visible GPU busy with bf16 matmuls and report how each copes.
+
+    A GPU whose cooling falls short heats up and the hardware lowers its
+    clock, so its rate falls well below the others'. Each GPU always has two
+    batches queued, so a fast GPU never waits for a slow one, and the
+    readings are taken while all of them are busy.
+    """
+    count = torch.cuda.device_count()
+    operands = [
+        (
+            torch.randn(size, size, device=device, dtype=torch.bfloat16),
+            torch.randn(size, size, device=device, dtype=torch.bfloat16),
+        )
+        for device in range(count)
+    ]
+    queued: list[list[tuple[torch.cuda.Event, torch.cuda.Event]]] = [[] for _ in range(count)]
+    busy_ms = [0.0] * count
+    done = [0] * count
+
+    def enqueue(device: int) -> None:
+        left, right = operands[device]
+        with torch.cuda.device(device):
+            begin, end = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+            begin.record()
+            for _ in range(batch):
+                left @ right
+            end.record()
+        queued[device].append((begin, end))
+
+    def collect(device: int, *, wait: bool) -> None:
+        while queued[device] and (wait or queued[device][0][1].query()):
+            begin, end = queued[device].pop(0)
+            end.synchronize()
+            busy_ms[device] += begin.elapsed_time(end)
+            done[device] += batch
+
+    start = time.perf_counter()
+    next_report = start + min(15.0, seconds / 2)
+    while time.perf_counter() - start < seconds:
+        for device in range(count):
+            collect(device, wait=False)
+            while len(queued[device]) < 2:
+                enqueue(device)
+        if time.perf_counter() >= next_report:
+            print(f"after {time.perf_counter() - start:.0f}s under load:\n{gpu_health()}", flush=True)
+            next_report += 30
+        time.sleep(0.01)
+    print(f"at the end, {time.perf_counter() - start:.0f}s under load:\n{gpu_health()}", flush=True)
+    for device in range(count):
+        collect(device, wait=True)
+        rate = 2 * size**3 * done[device] / (busy_ms[device] / 1e3) / 1e12
+        print(f"GPU {device}: {rate:.0f} TFLOPS sustained")
 
 
 def _free_port() -> int:
@@ -81,10 +158,16 @@ def allreduce_bus_bandwidth(world: int, megabytes: int = 256, repeats: int = 20)
     return results.get(timeout=60)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--burn", type=float, metavar="SECONDS", help="only load every GPU this long and report")
+    options = parser.parse_args(argv)
     if not torch.cuda.is_available():
         print("no CUDA device visible")
         return 1
+    if options.burn:
+        burn(options.burn)
+        return 0
     count = torch.cuda.device_count()
     print(f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '(unset)')}, {count} GPU(s)")
     print(EXPECTED)
@@ -101,21 +184,8 @@ def main() -> int:
             if other != device and torch.cuda.can_device_access_peer(device, other)
         ]
         print(f"GPU {device} peer access to: {', '.join(peers) or 'none'}")
+    print(gpu_health())
     if shutil.which("nvidia-smi"):
-        # A hot GPU is slowed by the hardware; 0x20 and 0x40 in the reasons
-        # are thermal slowdown, 0x08 a hardware slowdown.
-        health = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=index,pci.bus_id,temperature.gpu,clocks.sm,clocks.max.sm,power.draw,"
-                "power.limit,clocks_event_reasons.active",
-                "--format=csv",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        print(health.stdout.strip() or health.stderr.strip())
         topology = subprocess.run(["nvidia-smi", "topo", "-m"], capture_output=True, text=True, check=False)
         print(topology.stdout.strip() or topology.stderr.strip())
     if count > 1:
