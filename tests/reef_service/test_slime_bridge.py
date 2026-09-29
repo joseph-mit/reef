@@ -1409,11 +1409,12 @@ def test_driver_ready_file_is_atomic_and_driver_option_is_not_forwarded(tmp_path
         [
             "--reef-checkpoint-policy=best_reward",
             "--reef-checkpoint-max-storage=100GiB",
+            "--reef-checkpoint-max-count=1",
             "--loss-type",
             "sft_loss",
         ]
     )
-    assert retention == RetentionConfig(policy="best_reward", max_storage_bytes=100 * 1024**3)
+    assert retention == RetentionConfig(policy="best_reward", max_storage_bytes=100 * 1024**3, max_count=1)
     assert remaining == ["--loss-type", "sft_loss"]
 
     _write_ready_file(ready_file)

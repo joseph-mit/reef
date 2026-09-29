@@ -38,6 +38,11 @@ class RetentionConfig:
     min_free_space_fraction: float = 0.1
     max_storage_bytes: int | None = None
     min_free_space_bytes: int | None = None
+    # At most this many completed checkpoints are kept besides the one being
+    # written; protected checkpoints are kept even beyond it. The byte limits
+    # read the filesystem's size, which on a shared filesystem with per-user
+    # quotas says nothing about the space this job may use.
+    max_count: int | None = None
 
     def __post_init__(self) -> None:
         if self.policy not in POLICIES:
@@ -48,6 +53,8 @@ class RetentionConfig:
             raise ValueError("max_storage_bytes must be positive when set")
         if self.min_free_space_bytes is not None and self.min_free_space_bytes < 0:
             raise ValueError("min_free_space_bytes must be non-negative")
+        if self.max_count is not None and self.max_count < 1:
+            raise ValueError("max_count must be at least 1 when set")
         if (self.max_storage_fraction is not None and not 0 < self.max_storage_fraction <= 1) or not (
             0 <= self.min_free_space_fraction < 1
         ):
@@ -217,7 +224,8 @@ class CheckpointStorage:
             (rollout_id for rollout_id in pairs if rollout_id not in protected),
             key=lambda rollout_id: self._rank_key(pairs[rollout_id]),
         ):
-            if kept_bytes + live_sizes[rollout_id] <= budget:
+            within_count = self.config.max_count is None or len(keep_ids) < self.config.max_count
+            if within_count and kept_bytes + live_sizes[rollout_id] <= budget:
                 keep_ids.add(rollout_id)
                 kept_bytes += live_sizes[rollout_id]
         blocked_reasons = errors + ([f"unowned checkpoint assets: {', '.join(unknown)}"] if unknown else [])

@@ -33,6 +33,7 @@ def _storage(
     free: int = 1000,
     min_free: int = 0,
     lora: bool = False,
+    max_count: int | None = None,
 ) -> CheckpointStorage:
     root = tmp_path / "checkpoints"
     source_hf, source_megatron = tmp_path / "source-hf", tmp_path / "source-megatron"
@@ -40,7 +41,7 @@ def _storage(
     _write_bytes(source_megatron / "iter_0000000", 90)
     (source_megatron / "latest_checkpointed_iteration.txt").write_text("0", encoding="utf-8")
     return CheckpointStorage(
-        RetentionConfig(policy=policy, max_storage_bytes=cap, min_free_space_bytes=min_free),
+        RetentionConfig(policy=policy, max_storage_bytes=cap, min_free_space_bytes=min_free, max_count=max_count),
         hf_template=str(root / "hf" / "{rollout_id}"),
         megatron_root=root / "megatron",
         source_hf=source_hf,
@@ -197,6 +198,44 @@ class TestCheckpointStorage:
         constrained.source_megatron = source.resolve()
 
         assert constrained.validate_capacity(active_rollouts={2})["delete"] == [1]
+
+    def test_retention_config_rejects_a_zero_count(self) -> None:
+        with pytest.raises(ValueError, match="max_count"):
+            RetentionConfig(max_count=0)
+
+    @pytest.mark.parametrize(
+        ("policy", "rewards", "deleted"),
+        [("latest", (None,) * 4, [0, 1]), ("best_reward", (0.9, 0.1, 0.5, 0.2), [1, 2])],
+    )
+    def test_count_limit_keeps_the_best_ranked_pairs_within_ample_space(
+        self, tmp_path: Path, policy, rewards, deleted
+    ) -> None:
+        _completed_storage(tmp_path, rewards)
+
+        # Plenty of bytes: only the count removes pairs. The latest (3) is
+        # protected and counts towards the limit.
+        plan = _storage(tmp_path, policy=policy, cap=10_000, free=10_000, max_count=2).validate_capacity()
+
+        assert not plan["blocked"]
+        assert plan["delete"] == deleted
+
+    def test_count_limit_of_one_keeps_at_most_two_pairs_on_disk(self, tmp_path: Path) -> None:
+        storage = _completed_storage(tmp_path, (None,) * 3, cap=10_000, free=10_000, max_count=1)
+
+        # Each admission removes all but the latest, so the disk holds the
+        # latest pair and the one being written, never more.
+        assert [int(record["rollout_id"]) for record in storage._records()[0]] == [1, 2]
+        with storage.admit(rollout_id=3) as plan:
+            assert not plan["blocked"]
+            assert [int(record["rollout_id"]) for record in storage._records()[0]] == [2]
+
+    def test_count_limit_never_deletes_protected_pairs(self, tmp_path: Path) -> None:
+        storage = _completed_storage(tmp_path, (None,) * 3, cap=10_000, free=10_000)
+        (storage.megatron_root / "latest_checkpointed_iteration.txt").write_text("0", encoding="utf-8")
+
+        plan = _storage(tmp_path, cap=10_000, free=10_000, max_count=1).validate_capacity()
+
+        assert plan["delete"] == [1]
 
     def test_free_space_floor_reclaims_an_eligible_pair(self, tmp_path: Path) -> None:
         _completed_storage(tmp_path, (None,) * 2)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "recipes/tttd/examples/tttd"
 CONFIGS = sorted(EXAMPLE.glob("serve*.yaml"))
@@ -29,3 +30,14 @@ def test_colocated_trainer_keeps_the_memory_saver_usable(config: Path) -> None:
 def test_every_config_shares_the_serving_memory_share() -> None:
     shares = {config.name: config.read_text().count("--sglang-mem-fraction-static=0.7") for config in CONFIGS}
     assert len(CONFIGS) >= 7 and set(shares.values()) == {1}, shares
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("config", CONFIGS, ids=lambda path: path.name)
+def test_every_config_keeps_only_the_latest_checkpoint(config: Path) -> None:
+    # Retention's size limits read the filesystem's size; on a shared
+    # filesystem with per-user quotas they never delete, and a PPO-TTT
+    # checkpoint per step fills a quota within a few steps.
+    settings = yaml.safe_load(config.read_text())
+    assert settings["training"]["checkpoint_retention"]["max_count"] == 1
+    assert "--reef-checkpoint-max-count=${training.checkpoint_retention.max_count}" in config.read_text()

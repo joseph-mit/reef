@@ -208,6 +208,7 @@ def _retention_options(arguments: Sequence[str]) -> tuple[RetentionConfig, list[
     parser.add_argument("--reef-checkpoint-min-free-space-fraction", dest="min_free_space_fraction", type=float)
     parser.add_argument("--reef-checkpoint-max-storage", dest="max_storage_bytes", type=_size_bytes)
     parser.add_argument("--reef-checkpoint-min-free-space", dest="min_free_space_bytes", type=_size_bytes)
+    parser.add_argument("--reef-checkpoint-max-count", dest="max_count", type=int)
     options, remaining = parser.parse_known_args(arguments)
     return RetentionConfig(**vars(options)), remaining
 

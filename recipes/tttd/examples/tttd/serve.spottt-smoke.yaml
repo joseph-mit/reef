@@ -66,6 +66,9 @@ training:
     max_storage_fraction: 0.8
     min_free_space_fraction: 0.1
     policy: latest
+    # Only the latest checkpoint is kept (plus the one being written): the
+    # size limits above read the shared filesystem, not the user's quota.
+    max_count: 1
 
 services:
   - name: slime-driver
@@ -80,6 +83,7 @@ services:
       --reef-checkpoint-max-storage-fraction=${training.checkpoint_retention.max_storage_fraction}
       --reef-checkpoint-min-free-space-fraction=${training.checkpoint_retention.min_free_space_fraction}
       --reef-checkpoint-policy=${training.checkpoint_retention.policy}
+      --reef-checkpoint-max-count=${training.checkpoint_retention.max_count}
       --megatron-to-hf-mode=bridge
       --num-rollout=${training.steps}
       --rollout-batch-size=${reef.groups_per_step}
