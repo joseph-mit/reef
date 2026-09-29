@@ -15,9 +15,12 @@ CONFIGS = sorted(EXAMPLE.glob("serve*.yaml"))
 def test_colocated_trainer_keeps_the_memory_saver_usable(config: Path) -> None:
     text = config.read_text()
     # torch_memory_saver, which offloads the colocated trainer while SGLang
-    # generates, refuses to run under expandable segments.
-    assert "expandable_segments" not in text
+    # generates, refuses to run under expandable segments, and the Slime
+    # image turns them on for every process: the trainer must switch them off.
     assert "--colocate" in text
+    assert text.count("--train-env-vars") == 1
+    assert '"PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:False"' in text
+    assert "expandable_segments:True" not in text and "max_split_size_mb" not in text
 
 
 @pytest.mark.unit
