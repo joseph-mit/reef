@@ -51,10 +51,31 @@ def resolve_tensor_dtype(name: str):
         raise ValueError(f"unknown tensor dtype name {name!r}; expected one of {sorted(dtypes)}") from None
 
 
+#: Where a deployment starts Slime's searches for free ports on a node.
+PORT_BASE_ENV = "REEF_PORT_BASE"
+
+
+def reef_port_base(environ: Mapping[str, str] | None = None) -> int | None:
+    """The deployment's port base from ``REEF_PORT_BASE``, or ``None`` when unset."""
+    source = os.environ if environ is None else environ
+    raw = source.get(PORT_BASE_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        base = int(raw)
+    except ValueError:
+        raise ValueError(f"{PORT_BASE_ENV} must be an integer port, got {raw!r}") from None
+    if not 1024 <= base <= 60000:
+        raise ValueError(f"{PORT_BASE_ENV} must be between 1024 and 60000, got {base}")
+    return base
+
+
 def reef_rollout_env_vars(environ: Mapping[str, str] | None = None) -> dict[str, str]:
     """Environment that must cross Slime's explicit Ray runtime boundary."""
     source = os.environ if environ is None else environ
     values = {name: value for name, value in source.items() if name.startswith("SGLANG_")}
+    if source.get(PORT_BASE_ENV, "").strip():
+        values[PORT_BASE_ENV] = source[PORT_BASE_ENV].strip()
     host_ip = source.get("SLIME_HOST_IP", "").strip()
     if not host_ip:
         return values
@@ -69,10 +90,20 @@ def reef_rollout_env_vars(environ: Mapping[str, str] | None = None) -> dict[str,
 
 
 def reef_node_ip_and_free_port(start_port: int = 10000, consecutive: int = 1):
-    """Use Slime's deployment address for its train-actor rendezvous."""
+    """Use Slime's deployment address for its train-actor rendezvous and engine ports.
+
+    Slime finds ports by probing upwards from fixed starts (15000 for SGLang
+    engines), and a probed port is only bound later. Two deployments that
+    start on one node together therefore find the same ports free, and one
+    fails to bind. With ``REEF_PORT_BASE`` set, a probe that would start below
+    the base starts at it, so deployments given different bases stay apart.
+    """
     from slime.utils.http_utils import get_host_info
     from slime.utils.misc import get_free_port
 
+    base = reef_port_base()
+    if base is not None and start_port < base:
+        start_port = base
     address = get_host_info()[1].strip("[]")
     return address, get_free_port(start_port=start_port, consecutive=consecutive)
 

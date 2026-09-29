@@ -34,6 +34,40 @@ def test_node_address_honors_deployment_override(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.unit
+def test_port_searches_start_at_the_deployment_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Slime probes upwards from fixed starts, so two stacks that start on one
+    # node together would both take 15000; each deployment's base keeps them apart.
+    http_utils = importlib.import_module("slime.utils.http_utils")
+    misc = importlib.import_module("slime.utils.misc")
+    probes: list[int] = []
+    monkeypatch.setattr(
+        misc, "get_free_port", lambda *, start_port, consecutive: probes.append(start_port) or start_port
+    )
+    monkeypatch.setattr(http_utils, "get_host_info", lambda: ("worker", "10.0.0.1"))
+
+    monkeypatch.setenv("REEF_PORT_BASE", "23512")
+    assert worker_hooks.reef_node_ip_and_free_port(15000, 1) == ("10.0.0.1", 23512)
+    assert worker_hooks.reef_node_ip_and_free_port() == ("10.0.0.1", 23512), "the rendezvous default too"
+    assert worker_hooks.reef_node_ip_and_free_port(23600, 31) == ("10.0.0.1", 23600), "Slime's cursor moves on"
+    monkeypatch.delenv("REEF_PORT_BASE")
+    assert worker_hooks.reef_node_ip_and_free_port(15000, 1) == ("10.0.0.1", 15000), "unset keeps Slime's start"
+    assert probes == [23512, 23512, 23600, 15000]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("value", ["abc", "80", "70000"])
+def test_port_base_rejects_nonsense(value: str) -> None:
+    with pytest.raises(ValueError, match="REEF_PORT_BASE"):
+        worker_hooks.reef_port_base({"REEF_PORT_BASE": value})
+    assert worker_hooks.reef_port_base({}) is None
+
+
+@pytest.mark.unit
+def test_rollout_ray_environment_carries_the_port_base_to_engines() -> None:
+    assert worker_hooks.reef_rollout_env_vars({"REEF_PORT_BASE": " 23000 "}) == {"REEF_PORT_BASE": "23000"}
+
+
+@pytest.mark.unit
 def test_rollout_ray_environment_preserves_host_and_local_proxy_bypass() -> None:
     values = worker_hooks.reef_rollout_env_vars(
         {

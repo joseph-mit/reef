@@ -32,10 +32,18 @@ if command -v module > /dev/null 2>&1; then
     module load apptainer/1.4.2 > /dev/null 2>&1 || true
 fi
 
-# A free TCP port in [low, low + 4000), starting from one derived from the job
-# id so that jobs starting together on a node do not probe the same ports.
-# The ranges used below sit between Ray's worker ports and the kernel's
-# ephemeral range.
+# Every port a job's stack listens on sits below the kernel's ephemeral range
+# (32768 and up), in blocks derived from the job id, so jobs that start on
+# one node at the same moment do not probe the same ports:
+#
+#   20000-20999  Reef           22000-22999  SGLang router
+#   21000-21999  judge          23000-32215  REEF_PORT_BASE: where Slime starts
+#                                            probing for the SGLang engines'
+#                                            ports and Megatron's rendezvous,
+#                                            one 256-port block per job
+#
+# Consecutive job ids get neighbouring blocks. Two jobs collide only if they
+# start together and their ids differ by a multiple of the block count.
 port_in_use() {
     if command -v ss > /dev/null 2>&1; then
         [ -n "$(ss -Htln "sport = :$1" 2> /dev/null)" ]
@@ -45,26 +53,30 @@ port_in_use() {
     fi
 }
 
+# A free port in [low, low + 1000), starting from one derived from the job id.
 free_port() {
     local low=$1 port tries
-    port=$((low + ${SLURM_JOB_ID:-$$} % 4000))
-    for ((tries = 0; tries < 4000; tries++)); do
+    port=$((low + ${SLURM_JOB_ID:-$$} % 1000))
+    for ((tries = 0; tries < 1000; tries++)); do
         if ! port_in_use "$port"; then
             echo "$port"
             return 0
         fi
-        port=$((low + (port - low + 1) % 4000))
+        port=$((low + (port - low + 1) % 1000))
     done
     return 1
 }
 
+ENGINE_PORT_BLOCKS=36  # 23000 + 36 * 256 = 32216
+
 # run.sh defaults to fixed ports for Reef, the SGLang router and the judge,
-# which allows one stack per machine. A job takes free ones instead, so
-# several jobs can share a node; every phase of a job reuses the same ports.
+# which allows one stack per machine. A job takes its own instead, so several
+# jobs can share a node; every phase of a job reuses the same ports.
 if [ -n "${SLURM_JOB_ID:-}" ]; then
     export TTTD_REEF_PORT=${TTTD_REEF_PORT:-$(free_port 20000)}
-    export TTTD_JUDGE_PORT=${TTTD_JUDGE_PORT:-$(free_port 24000)}
-    export TTTD_ROUTER_PORT=${TTTD_ROUTER_PORT:-$(free_port 28000)}
+    export TTTD_JUDGE_PORT=${TTTD_JUDGE_PORT:-$(free_port 21000)}
+    export TTTD_ROUTER_PORT=${TTTD_ROUTER_PORT:-$(free_port 22000)}
+    export REEF_PORT_BASE=${REEF_PORT_BASE:-$((23000 + 256 * (SLURM_JOB_ID % ENGINE_PORT_BLOCKS)))}
 fi
 
 # Run a command string in the image with the GPUs, a clean environment and a
@@ -88,7 +100,7 @@ in_container() {
     )
     # Passed only when set: an empty CUDA_VISIBLE_DEVICES would hide every GPU.
     for name in CUDA_VISIBLE_DEVICES TTTD_TASK TTTD_METHOD TTTD_DRIVER TTTD_RUN_STEPS TTTD_HOLD_AFTER_RUN \
-        TTTD_REEF_PORT TTTD_JUDGE_PORT TTTD_ROUTER_PORT; do
+        TTTD_REEF_PORT TTTD_JUDGE_PORT TTTD_ROUTER_PORT REEF_PORT_BASE; do
         if [ -n "${!name:-}" ]; then
             environment+=("APPTAINERENV_$name=${!name}")
         fi

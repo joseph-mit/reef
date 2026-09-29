@@ -15,12 +15,14 @@ CONFIGS = sorted(EXAMPLE.glob("serve*.yaml"))
 def test_colocated_trainer_keeps_the_memory_saver_usable(config: Path) -> None:
     text = config.read_text()
     # torch_memory_saver, which offloads the colocated trainer while SGLang
-    # generates, refuses to run under expandable segments, and the Slime
-    # image turns them on for every process: the trainer must switch them off.
+    # generates, refuses expandable segments. max_split_size_mb:512 keeps the
+    # allocator from carving the buffers the trainer shares with SGLang over
+    # CUDA IPC out of large blocks the memory saver owns, which cannot be
+    # shared: the default allocator failed at the first adapter publication.
     assert "--colocate" in text
     assert text.count("--train-env-vars") == 1
-    assert '"PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:False"' in text
-    assert "expandable_segments:True" not in text and "max_split_size_mb" not in text
+    assert '--train-env-vars=\'{"PYTORCH_CUDA_ALLOC_CONF":"max_split_size_mb:512"}\'' in text
+    assert "expandable_segments" not in text
 
 
 @pytest.mark.unit
