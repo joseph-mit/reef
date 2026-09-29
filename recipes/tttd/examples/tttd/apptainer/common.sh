@@ -32,6 +32,41 @@ if command -v module > /dev/null 2>&1; then
     module load apptainer/1.4.2 > /dev/null 2>&1 || true
 fi
 
+# A free TCP port in [low, low + 4000), starting from one derived from the job
+# id so that jobs starting together on a node do not probe the same ports.
+# The ranges used below sit between Ray's worker ports and the kernel's
+# ephemeral range.
+port_in_use() {
+    if command -v ss > /dev/null 2>&1; then
+        [ -n "$(ss -Htln "sport = :$1" 2> /dev/null)" ]
+    else
+        # Binding the wildcard address fails if anything listens on the port.
+        ! python3 -c 'import socket, sys; socket.socket().bind(("", int(sys.argv[1])))' "$1" 2> /dev/null
+    fi
+}
+
+free_port() {
+    local low=$1 port tries
+    port=$((low + ${SLURM_JOB_ID:-$$} % 4000))
+    for ((tries = 0; tries < 4000; tries++)); do
+        if ! port_in_use "$port"; then
+            echo "$port"
+            return 0
+        fi
+        port=$((low + (port - low + 1) % 4000))
+    done
+    return 1
+}
+
+# run.sh defaults to fixed ports for Reef, the SGLang router and the judge,
+# which allows one stack per machine. A job takes free ones instead, so
+# several jobs can share a node; every phase of a job reuses the same ports.
+if [ -n "${SLURM_JOB_ID:-}" ]; then
+    export TTTD_REEF_PORT=${TTTD_REEF_PORT:-$(free_port 20000)}
+    export TTTD_JUDGE_PORT=${TTTD_JUDGE_PORT:-$(free_port 24000)}
+    export TTTD_ROUTER_PORT=${TTTD_ROUTER_PORT:-$(free_port 28000)}
+fi
+
 # Run a command string in the image with the GPUs, a clean environment and a
 # home directory of its own. Model-written programs run in here, so they see
 # the checkout and the work root but not your real home or your shell's
@@ -52,7 +87,8 @@ in_container() {
         "APPTAINERENV_RAY_TMPDIR=${RAY_TMPDIR:-/tmp/ray-$USER}"
     )
     # Passed only when set: an empty CUDA_VISIBLE_DEVICES would hide every GPU.
-    for name in CUDA_VISIBLE_DEVICES TTTD_TASK TTTD_METHOD TTTD_DRIVER TTTD_RUN_STEPS TTTD_HOLD_AFTER_RUN; do
+    for name in CUDA_VISIBLE_DEVICES TTTD_TASK TTTD_METHOD TTTD_DRIVER TTTD_RUN_STEPS TTTD_HOLD_AFTER_RUN \
+        TTTD_REEF_PORT TTTD_JUDGE_PORT TTTD_ROUTER_PORT; do
         if [ -n "${!name:-}" ]; then
             environment+=("APPTAINERENV_$name=${!name}")
         fi

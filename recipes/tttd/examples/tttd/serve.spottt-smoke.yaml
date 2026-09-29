@@ -16,7 +16,7 @@ execution:
 reef:
   host: 127.0.0.1
   model_path: work/model
-  port: 8900
+  port: ${TTTD_REEF_PORT:?}
   recipe: recipes.spottt.recipe:SPOTTTRecipe
   token: reef-local
   groups_per_step: 2
@@ -136,7 +136,7 @@ services:
       --rollout-max-response-len=30000
       --rollout-max-context-len=30000
       --sglang-context-length=30000
-      --sglang-router-port=30000
+      --sglang-router-port=${TTTD_ROUTER_PORT:?}
       --sglang-mem-fraction-static=0.5
       --sglang-disable-prefill-cuda-graph
       --sglang-cuda-graph-max-bs-decode=128

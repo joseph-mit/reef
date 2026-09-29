@@ -69,6 +69,11 @@ else
     export TTTD_STATE_DIR="$PWD/work/$TTTD_METHOD/$TTTD_TASK"
 fi
 export REEF_INFERENCE_HOST=$(hostname -I | awk '{print $1}')
+# The stack's fixed ports: Reef, the SGLang router and the local driver's
+# judge. Override them to run a second stack on the same machine.
+export TTTD_REEF_PORT=${TTTD_REEF_PORT:-8900}
+export TTTD_ROUTER_PORT=${TTTD_ROUTER_PORT:-30000}
+export TTTD_JUDGE_PORT=${TTTD_JUDGE_PORT:-8082}
 mkdir -p "$TTTD_STATE_DIR"
 
 # Download the model on first run (serve.yaml expects it at work/model).
@@ -89,7 +94,7 @@ trap cleanup EXIT
 # Ray + Slime/Megatron + SGLang take minutes to come up.
 # Fail with the service log instead of waiting forever if boot fails.
 ready_deadline=$((SECONDS + 3600))
-while ! curl -sf http://127.0.0.1:8900/healthz > /dev/null; do
+while ! curl -sf "http://127.0.0.1:$TTTD_REEF_PORT/healthz" > /dev/null; do
     if ! kill -0 "$reef_pid" 2>/dev/null || (( SECONDS >= ready_deadline )); then
         tail -n 100 "$TTTD_STATE_DIR/reef.log" >&2
         echo "run.sh: the Reef stack did not become ready" >&2

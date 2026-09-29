@@ -1,7 +1,8 @@
 # Colocated Qwen3-8B TTT-Discover LoRA stack for harbor/erdos_min_overlap.
-# Every value is literal except the two run.sh computes: TTTD_STATE_DIR, the
-# absolute root all durable state hangs off, and REEF_INFERENCE_HOST, this
-# machine's IP.
+# Every value is literal except those run.sh sets: TTTD_STATE_DIR, the
+# absolute root all durable state hangs off, REEF_INFERENCE_HOST, this
+# machine's IP, and the Reef and SGLang router ports TTTD_REEF_PORT and
+# TTTD_ROUTER_PORT (8900 and 30000 unless set), so two stacks can share a node.
 
 run_dir: ${TTTD_STATE_DIR}/stack
 ready_timeout: 3600
@@ -14,7 +15,7 @@ execution:
 reef:
   host: 127.0.0.1
   model_path: work/model
-  port: 8900
+  port: ${TTTD_REEF_PORT:?}
   recipe: recipes.tttd.recipe:TTTDRecipe
   token: reef-local
   groups_per_step: 8
@@ -116,7 +117,7 @@ services:
       --rollout-max-response-len=30000
       --rollout-max-context-len=30000
       --sglang-context-length=30000
-      --sglang-router-port=30000
+      --sglang-router-port=${TTTD_ROUTER_PORT:?}
       --sglang-mem-fraction-static=0.5
       --sglang-disable-prefill-cuda-graph
       --sglang-cuda-graph-max-bs-decode=128

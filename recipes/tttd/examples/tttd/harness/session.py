@@ -11,6 +11,7 @@ state file the other wrote.
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +25,8 @@ from .methods import Method
 from .run_controller import ReefTrainingStatusClient, TTTDRunController, TTTDRunIdentity, TTTDRunStateStore
 from .search import Scorer, TTTDChatRequestBuilder
 
-SERVICE_URL = "http://127.0.0.1:8900"  # the Reef run.sh started
+# The Reef run.sh started; TTTD_REEF_PORT moves it when two stacks share a machine.
+SERVICE_URL = f"http://127.0.0.1:{os.environ.get('TTTD_REEF_PORT', '8900')}"
 TOKEN = "reef-local"  # matches every serve*.yaml
 INFERENCE_PATH = "/v1/chat/completions"
 

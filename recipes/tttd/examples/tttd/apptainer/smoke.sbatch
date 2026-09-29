@@ -116,6 +116,18 @@ wait_for_idle_gpus() {
     done
 }
 
+# Shared-memory segments of yours made since the marker and no longer open or
+# mapped by any process. Without fuser nothing is removed.
+remove_unheld_segments() {
+    local marker=$1 segment
+    command -v fuser > /dev/null 2>&1 || return 0
+    while IFS= read -r -d '' segment; do
+        if ! fuser -s "$segment" 2> /dev/null; then
+            rm -rf "$segment"
+        fi
+    done < <(find /dev/shm -mindepth 1 -maxdepth 1 -user "$(id -u)" -newer "$marker" -print0 2> /dev/null)
+}
+
 failures=0
 for method in $SMOKE_METHODS; do
     echo
@@ -149,7 +161,9 @@ for method in $SMOKE_METHODS; do
         phase1_done=0
     fi
     # Leftover shared-memory segments and Ray session files of the killed stack.
-    find /dev/shm -maxdepth 1 -user "$(id -u)" -newer "$marker" -exec rm -rf {} + 2> /dev/null || true
+    # Another of your jobs on the node may have made segments since the marker
+    # too, so only those no process still holds are removed.
+    remove_unheld_segments "$marker"
     rm -rf "${RAY_TMPDIR:?}"/*
 
     if [ "$phase1_done" = 1 ]; then

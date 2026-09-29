@@ -48,7 +48,8 @@ from harness.session import SERVICE_URL, TOKEN, StackSettings, build_run
 HERE = Path(__file__).resolve().parent
 MODEL = "Qwen/Qwen3-8B"  # the model run.sh downloaded, as run.py names it
 TASKS = ("erdos_min_overlap", "circle_packing_26", "circle_packing_32")
-JUDGE_PORT = 8082  # harness JudgeScorer's port, as in the tasks' compose files
+# The tasks' compose files publish the judge on 8082; run.sh sets TTTD_JUDGE_PORT.
+JUDGE_PORT = int(os.environ.get("TTTD_JUDGE_PORT", "8082"))
 JUDGE_READY_TIMEOUT_S = 120.0
 
 # Serves the task's judge exactly as its container does, but bound to the
