@@ -4,8 +4,9 @@ Run in the image on the job's GPUs:
 
     python3 apptainer/gpu_check.py
 
-It prints each GPU's bf16 matrix-multiply rate, which GPUs can read each
-other's memory directly (peer access), the NVIDIA topology, and the NCCL
+It prints each GPU's temperature, clock and slowdown reasons, its bf16
+matrix-multiply rate, which GPUs can read each other's memory directly (peer
+access), the NVIDIA topology, and the NCCL
 all-reduce bus bandwidth across all visible GPUs: the traffic tensor
 parallelism adds to every layer of every training step. Next to a running job
 the GPUs are shared, so the rates are lower bounds.
@@ -101,6 +102,20 @@ def main() -> int:
         ]
         print(f"GPU {device} peer access to: {', '.join(peers) or 'none'}")
     if shutil.which("nvidia-smi"):
+        # A hot GPU is slowed by the hardware; 0x20 and 0x40 in the reasons
+        # are thermal slowdown, 0x08 a hardware slowdown.
+        health = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,pci.bus_id,temperature.gpu,clocks.sm,clocks.max.sm,power.draw,"
+                "power.limit,clocks_event_reasons.active",
+                "--format=csv",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        print(health.stdout.strip() or health.stderr.strip())
         topology = subprocess.run(["nvidia-smi", "topo", "-m"], capture_output=True, text=True, check=False)
         print(topology.stdout.strip() or topology.stderr.strip())
     if count > 1:
