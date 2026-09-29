@@ -4,6 +4,7 @@ Run in the image on the job's GPUs:
 
     python3 apptainer/gpu_check.py
     python3 apptainer/gpu_check.py --burn 90   # load every GPU, then read temperatures
+    python3 apptainer/gpu_check.py --rank 60   # the same, then the GPUs fastest first
 
 It prints each GPU's temperature, clock and slowdown reasons, its bf16
 matrix-multiply rate, which GPUs can read each other's memory directly (peer
@@ -67,7 +68,7 @@ def gpu_health() -> str:
     return health.stdout.strip() or health.stderr.strip()
 
 
-def burn(seconds: float, size: int = 8192, batch: int = 20) -> None:
+def burn(seconds: float, size: int = 8192, batch: int = 20) -> list[float]:
     """Keep every visible GPU busy with bf16 matmuls and report how each copes.
 
     A GPU whose cooling falls short heats up and the hardware lowers its
@@ -116,10 +117,12 @@ def burn(seconds: float, size: int = 8192, batch: int = 20) -> None:
             next_report += 30
         time.sleep(0.01)
     print(f"at the end, {time.perf_counter() - start:.0f}s under load:\n{gpu_health()}", flush=True)
+    rates = []
     for device in range(count):
         collect(device, wait=True)
-        rate = 2 * size**3 * done[device] / (busy_ms[device] / 1e3) / 1e12
-        print(f"GPU {device}: {rate:.0f} TFLOPS sustained")
+        rates.append(2 * size**3 * done[device] / (busy_ms[device] / 1e3) / 1e12)
+        print(f"GPU {device}: {rates[-1]:.0f} TFLOPS sustained")
+    return rates
 
 
 def _free_port() -> int:
@@ -161,12 +164,21 @@ def allreduce_bus_bandwidth(world: int, megabytes: int = 256, repeats: int = 20)
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--burn", type=float, metavar="SECONDS", help="only load every GPU this long and report")
+    parser.add_argument(
+        "--rank",
+        type=float,
+        metavar="SECONDS",
+        help="as --burn, then print 'ranked:' and the device indices, fastest first",
+    )
     options = parser.parse_args(argv)
     if not torch.cuda.is_available():
         print("no CUDA device visible")
         return 1
-    if options.burn:
-        burn(options.burn)
+    if options.burn or options.rank:
+        rates = burn(options.burn or options.rank)
+        if options.rank:
+            order = sorted(range(len(rates)), key=lambda device: -rates[device])
+            print("ranked: " + " ".join(str(device) for device in order))
         return 0
     count = torch.cuda.device_count()
     print(f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '(unset)')}, {count} GPU(s)")

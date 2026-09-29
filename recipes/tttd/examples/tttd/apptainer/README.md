@@ -44,6 +44,17 @@ TTTD_METHOD=spottt TTTD_TASK=circle_packing_26 TTTD_RUN_STEPS=10 \
     sbatch --gres=gpu:2 recipes/tttd/examples/tttd/apptainer/run.sbatch
 ```
 
+## Several runs on the best GPUs
+
+A run goes at the pace of its slowest GPU, and Slurm hands a job whichever GPUs are free. On node2500 three GPUs overheat under load: at about 93 C the hardware cuts their clock to 345 MHz and a sustained bf16 matmul reaches about 120 TFLOPS, against 600-660 on the others. `multi.sbatch` takes all the GPUs its runs need, ranks them under a minute of load (`gpu_check.py --rank`) and gives the fastest to the runs listed first:
+
+```bash
+TTTD_RUNS="spottt:2 ppottt:4" TTTD_LOCAL_STATE=ppottt \
+    sbatch --nodelist=node2500 --gres=gpu:h200:6 --mem=1024G recipes/tttd/examples/tttd/apptainer/multi.sbatch
+```
+
+`TTTD_RUNS` lists `method:gpus` or `method:gpus:steps`; a run without a step count goes on until the job's time limit, and the next job resumes it. The methods in `TTTD_LOCAL_STATE` keep their state on the node's local disk, outside your quota. Each run writes `reef-multi-<job>-<method>.out`.
+
 ## Checking a run
 
 Each start of a stack moves the previous run's `reef.log` and service logs into `logs/<time>/` under the state directory: Reef appends every service's output to one file per service and replays it whole into `reef.log`, so otherwise an earlier run's errors reappear in the next run's log.
