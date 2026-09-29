@@ -20,6 +20,24 @@ STATE_FORMAT_VERSION = 1
 FROZEN_POLICY = "frozen"
 
 
+def step_reward_summary(results: Sequence[Any]) -> dict[str, float]:
+    """This step's attempts, summarised: how good the policy is, not only the archive's best.
+
+    The archive's best reward stops moving after a few steps on the bundled
+    tasks, so it separates search methods poorly; the mean reward of a step's
+    attempts is what a training method changes. Results without a reward
+    (stand-ins in tests) give no summary.
+    """
+    rewards = [float(result.reward) for result in results if isinstance(getattr(result, "reward", None), (int, float))]
+    if not rewards:
+        return {}
+    return {
+        "reward_mean": sum(rewards) / len(rewards),
+        "reward_max": max(rewards),
+        "reward_zero_fraction": sum(reward == 0 for reward in rewards) / len(rewards),
+    }
+
+
 class TTTDRunStateError(RuntimeError):
     """The search archive and Reef's durable training state do not align."""
 
@@ -328,6 +346,7 @@ class TTTDRunController:
                     "runtime_load_id": runtime_load_id,
                     "archive_size": len(candidates),
                     "archive_best_reward": max(candidate.reward for candidate in candidates),
+                    **step_reward_summary(results),
                 }
             )
 
@@ -377,6 +396,7 @@ class TTTDRunController:
                     "runtime_load_id": FROZEN_POLICY,
                     "archive_size": len(candidates),
                     "archive_best_reward": max(candidate.reward for candidate in candidates),
+                    **step_reward_summary(results),
                 }
             )
         return TTTDRunOutcome(
