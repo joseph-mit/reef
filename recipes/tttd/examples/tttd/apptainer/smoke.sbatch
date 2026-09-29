@@ -193,6 +193,10 @@ for method in $SMOKE_METHODS; do
             cp "$state/$item" "$RESULTS/$method/"
         fi
     done
+    # Phase 1's logs, set aside when phase 2 started.
+    if [ -d "$state/logs" ]; then
+        cp -r "$state/logs" "$RESULTS/$method/"
+    fi
     find "$state/agent-record" -name '*.commits.jsonl' -exec cp {} "$RESULTS/$method/" \; 2> /dev/null || true
     find "$state/judge" -name judge.log -exec sh -c 'cp "$1" "$2/judge-$(basename "$(dirname "$1")").log"' _ {} "$RESULTS/$method" \; \
         2> /dev/null || true

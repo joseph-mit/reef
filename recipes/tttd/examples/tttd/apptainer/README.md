@@ -46,6 +46,8 @@ TTTD_METHOD=spottt TTTD_TASK=circle_packing_26 TTTD_RUN_STEPS=10 \
 
 ## Checking a run
 
+Each start of a stack moves the previous run's `reef.log` and service logs into `logs/<time>/` under the state directory: Reef appends every service's output to one file per service and replays it whole into `reef.log`, so otherwise an earlier run's errors reappear in the next run's log.
+
 `run_status.py <state directory>` prints one row per committed step: mean and best reward, step time, training throughput, allocator retries, the trainer-sampler log-prob gap before any update, and the sampled policy's KL to the base. It reads only files, so it runs on the login node while the job runs.
 
 ## Known limits

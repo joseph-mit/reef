@@ -81,6 +81,20 @@ if [ ! -f work/model/config.json ]; then
     huggingface-cli download Qwen/Qwen3-8B --local-dir work/model
 fi
 
+# Every start writes fresh logs. Reef appends each service's output to
+# stack/<service>.log and replays that whole file into reef.log, so without
+# this an earlier run's lines, errors included, reappear in this run's log.
+archive="$TTTD_STATE_DIR/logs/$(date +%Y%m%d-%H%M%S)"
+for old in "$TTTD_STATE_DIR"/reef.log "$TTTD_STATE_DIR"/stack/*.log; do
+    if [ -f "$old" ]; then
+        mkdir -p "$archive/stack"
+        case "$old" in
+            */stack/*) mv "$old" "$archive/stack/" ;;
+            *) mv "$old" "$archive/" ;;
+        esac
+    fi
+done
+
 # Start the Reef training stack. The Harbor controller waits for the final
 # durable training commit before this script exits and stops the stack.
 python3 -m reef serve -c "$PWD/$config" > "$TTTD_STATE_DIR/reef.log" 2>&1 &
