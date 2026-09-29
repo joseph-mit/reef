@@ -8,7 +8,7 @@ from reef.artifact.artifact import Artifact, ArtifactRef, LiveWeightArtifactRef
 from reef.core.artifact_ref import RuntimeLoadSpan, parse_runtime_load_spans
 from reef.core.errors import ReefError
 from reef.surface.adapter import adapter_name
-from reef.surface.base import ServingRuntime, Surface, WeightRuntime
+from reef.surface.base import ScenarioAdapterRuntime, ServingRuntime, Surface, WeightRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -118,16 +118,32 @@ class WeightInferenceHooks:
     ``scenario`` instead derives the name per request on a runtime that
     serves one adapter per scenario: ``adapter_name(scenario,
     runtime_load_id)`` of the frozen artifact, so the recorded ``lora_path``
-    proves which of that scenario's publications answered. An artifact with
-    no runtime load ID (nothing published yet) samples the frozen base, which
+    proves which of that scenario's publications answered.
+
+    A durable checkpoint head is a repository release, not a live load, so it
+    carries no runtime load ID. ``runtime`` then names the adapter the engine
+    holds for the scenario, which the commit protocol published before it
+    moved the head and which startup recovery republishes before serving.
+    Only a scenario whose runtime holds nothing samples the frozen base, which
     is exactly what a fresh zero-initialised adapter computes.
     """
 
-    def __init__(self, adapter_name: str | None = None, *, scenario: str | None = None) -> None:
+    def __init__(
+        self,
+        adapter_name: str | None = None,
+        *,
+        scenario: str | None = None,
+        runtime: ScenarioAdapterRuntime | None = None,
+    ) -> None:
         if adapter_name is not None and not adapter_name:
             raise ValueError("adapter_name must be a non-empty name or None")
         if adapter_name is not None and scenario is not None:
             raise ValueError("a weight surface serves either one shared adapter or per-scenario adapters")
+        if runtime is not None and scenario is None:
+            raise ValueError("a runtime resolves adapters per scenario; name the scenario")
+        self._runtime = runtime
+        # A release's adapter never changes, so one lookup per served head.
+        self._resident: tuple[str, str] | None = None
         self._adapter_name = adapter_name
         self._scenario = scenario
 
@@ -145,7 +161,23 @@ class WeightInferenceHooks:
         if self._scenario is None:
             return self._adapter_name
         version = artifact_runtime_load_id(artifact)
+        if version is None and not isinstance(artifact.ref, LiveWeightArtifactRef):
+            version = self._resident_version(self._scenario, artifact.ref.release_id)
         return None if version is None else adapter_name(self._scenario, version)
+
+    def _resident_version(self, scenario: str, release_id: str) -> str | None:
+        """The runtime load ID of the adapter the engine holds for a checkpoint head."""
+        if self._runtime is None:
+            return None
+        cached = self._resident
+        if cached is not None and cached[0] == release_id:
+            return cached[1]
+        version = self._runtime.serving_adapter_runtime_load_id(scenario)
+        if version is None:
+            # Nothing published for this scenario: the frozen base is exact.
+            return None
+        self._resident = (release_id, version)
+        return version
 
     def _address_adapter(self, payload: dict[str, Any], served: str | None) -> dict[str, Any]:
         """Name the served adapter, refusing a request that names another one."""
@@ -210,15 +242,21 @@ class WeightInferenceHooks:
             )
 
 
-def create_weight_surface(adapter_name: str | None = None, *, scenario: str | None = None) -> Surface:
+def create_weight_surface(
+    adapter_name: str | None = None,
+    *,
+    scenario: str | None = None,
+    runtime: ScenarioAdapterRuntime | None = None,
+) -> Surface:
     """Build weight loading and inference capabilities.
 
     ``scenario`` selects per-scenario adapter routing on a runtime whose
-    training slot is shared by several scenarios.
+    training slot is shared by several scenarios; ``runtime`` names the
+    adapter a durable checkpoint head is served by.
     """
     return Surface(
         loader=WeightLoader(scenario),
-        inference=WeightInferenceHooks(adapter_name, scenario=scenario),
+        inference=WeightInferenceHooks(adapter_name, scenario=scenario, runtime=runtime),
     )
 
 

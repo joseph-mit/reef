@@ -31,6 +31,12 @@ class WeightRuntime(ServingRuntime, Protocol):
     def restore_checkpoint(self, artifact: Artifact) -> str: ...
 
 
+class ScenarioAdapterRuntime(Protocol):
+    """A runtime that serves one adapter per scenario on a shared base."""
+
+    def serving_adapter_runtime_load_id(self, scenario: str) -> str | None: ...
+
+
 class ArtifactLoader(Protocol):
     """Runtime-backed artifact loading and startup recovery."""
 
@@ -123,6 +129,7 @@ __all__ = [
     "InferenceHooks",
     "InferenceLease",
     "LeasingInferenceHooks",
+    "ScenarioAdapterRuntime",
     "ServingRuntime",
     "Surface",
     "WeightRuntime",
