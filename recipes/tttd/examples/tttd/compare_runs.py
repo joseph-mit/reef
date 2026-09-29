@@ -102,12 +102,10 @@ def plot(curves: Mapping[str, Curve], task: str, path: Path) -> None:
     for name, curve in curves.items():
         steps = sorted(curve)
         style = {"linestyle": "--", "color": "grey"} if name == REFERENCE else {"marker": "o"}
-        means = [(step, curve[step]["mean"]) for step in steps if "mean" in curve[step]]
-        bests = [(step, curve[step]["best"]) for step in steps if "best" in curve[step]]
-        if means:
-            mean_axis.plot(*zip(*means), label=name, **style)
-        if bests:
-            best_axis.plot(*zip(*bests), label=name, **style)
+        for axis, key in ((mean_axis, "mean"), (best_axis, "best")):
+            points = [step for step in steps if key in curve[step]]
+            if points:
+                axis.plot(points, [curve[step][key] for step in points], label=name, **style)
     mean_axis.set(title=f"{task}: mean reward of the step's attempts", xlabel="step", ylabel="mean reward")
     best_axis.set(title=f"{task}: best reward found so far", xlabel="step", ylabel="best reward")
     best_axis.ticklabel_format(axis="y", useOffset=False)
