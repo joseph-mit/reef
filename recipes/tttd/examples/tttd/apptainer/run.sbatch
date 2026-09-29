@@ -10,6 +10,7 @@
 # jobs: resubmit with a larger value (20, 30, ... up to the config's 50) and
 # the next job resumes from the last committed step. Every method except
 # ppottt fits the two GPUs of `--gres=gpu:2`; pass it on the sbatch line.
+# ppottt also needs more host memory than the default: pass `--mem=768G`.
 #
 # State stays under $REEF_WORK_ROOT/runs/<method>/<task>, which must hold the
 # checkpoints: PPO-TTT's include a full critic with its optimiser state.

@@ -17,11 +17,15 @@
 # SMOKE_METHODS picks the methods (default: ppottt-smoke spottt-smoke) and
 # TTTD_TASK the task (default: circle_packing_26). The results land in
 # $REEF_WORK_ROOT/smoke-results/<job id>/.
+#
+# Host memory: the SPO-TTT smoke peaked at about 168 GiB; the PPO-TTT smoke
+# was killed at a 256 GB limit, since its full critic and optimiser state are
+# offloaded to host memory next to the actor's.
 #SBATCH --job-name=reef-smoke
 #SBATCH --partition=pi_ppliang
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=256G
+#SBATCH --mem=768G
 #SBATCH --time=06:00:00
 #SBATCH --output=reef-smoke-%j.out
 
