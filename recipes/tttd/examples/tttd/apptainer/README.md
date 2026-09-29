@@ -31,7 +31,7 @@ For each of `ppottt-smoke` and `spottt-smoke` on `circle_packing_26` (2 parents 
 3. **phase 2**: a new stack restores the checkpoint and the search archive and runs step 2;
 4. **check**: [`check_smoke.py`](check_smoke.py) reads what Reef committed (`agent-record/*.commits.jsonl`), the run summaries and the search state, and reports each stage (rollout, evaluation, training update, checkpoint save, resume) as passed or failed, with the records behind each result.
 
-The job ends with `SMOKE PASSED` or `SMOKE FAILED`. The reports, logs, commit records and the best program are copied to `$REEF_WORK_ROOT/smoke-results/<job id>/`. Checkpoints go to the node's local disk when it has 600 GB free, otherwise under `REEF_WORK_ROOT`.
+The job ends with `SMOKE PASSED` or `SMOKE FAILED`. The reports, logs, commit records and the best program are copied to `$REEF_WORK_ROOT/smoke-results/<job id>/`. Checkpoints go to the node's local disk when it has 600 GB free, and are deleted when the job ends; otherwise they go under `REEF_WORK_ROOT` and stay.
 
 Variables: `SMOKE_METHODS` (default `"ppottt-smoke spottt-smoke"`), `TTTD_TASK` (default `circle_packing_26`), `REEF_WORK_ROOT` (default `~/orcd/scratch/reef-work`), `PHASE_TIMEOUT_S` (default 7200).
 

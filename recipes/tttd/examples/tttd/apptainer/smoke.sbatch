@@ -64,6 +64,11 @@ REEF_EXTRA_BINDS="$STATE_ROOT"
 cleanup() {
     kill_job_processes
     rm -rf "$RAY_TMPDIR"
+    # The node's local disk is shared by every job on it and nothing clears
+    # it; the results worth keeping are already under $RESULTS.
+    case "$STATE_ROOT" in
+        /tmp/*) rm -rf "$STATE_ROOT" ;;
+    esac
 }
 trap cleanup EXIT
 
@@ -117,15 +122,9 @@ wait_for_idle_gpus() {
 }
 
 # Shared-memory segments of yours made since the marker and no longer open or
-# mapped by any process. Without fuser nothing is removed.
+# mapped by any process: what the killed stack left behind.
 remove_unheld_segments() {
-    local marker=$1 segment
-    command -v fuser > /dev/null 2>&1 || return 0
-    while IFS= read -r -d '' segment; do
-        if ! fuser -s "$segment" 2> /dev/null; then
-            rm -rf "$segment"
-        fi
-    done < <(find /dev/shm -mindepth 1 -maxdepth 1 -user "$(id -u)" -newer "$marker" -print0 2> /dev/null)
+    python3 "$EXAMPLE_DIR/apptainer/shm_cleanup.py" "$1" || echo "shared-memory cleanup failed; continuing" >&2
 }
 
 failures=0

@@ -12,9 +12,11 @@
 # ppottt fits the two GPUs of `--gres=gpu:2`; pass it on the sbatch line.
 # ppottt also needs more host memory than the default: pass `--mem=768G`.
 #
-# State stays under $REEF_WORK_ROOT/runs/<method>/<task>, which must hold the
-# checkpoints: PPO-TTT's include a full critic with its optimiser state.
-# Reef's storage check reads the filesystem's size, not your quota.
+# State stays under $REEF_RUNS_DIR/<method>/<task> (default
+# $REEF_WORK_ROOT/runs), which must hold two checkpoints: a PPO-TTT one is
+# about 117 GB (99 GB of it the critic with its optimiser state). To keep a run
+# on a node's local disk instead of your quota, pin the node and set
+# REEF_RUNS_DIR=/tmp/$USER-reef-runs; the next job must run on the same node.
 #SBATCH --job-name=reef-run
 #SBATCH --partition=pi_ppliang
 #SBATCH --gres=gpu:4
@@ -39,7 +41,10 @@ trap 'kill_job_processes; rm -rf "$RAY_TMPDIR"' EXIT
 # tttd keeps its original work/<task> layout; every other method gets
 # work/<method>/, pointed at persistent storage so the next job can resume.
 if [ "$TTTD_METHOD" != tttd ]; then
-    run_root="$REEF_WORK_ROOT/runs/$TTTD_METHOD"
+    REEF_RUNS_DIR=${REEF_RUNS_DIR:-$REEF_WORK_ROOT/runs}
+    run_root="$REEF_RUNS_DIR/$TTTD_METHOD"
+    # shellcheck disable=SC2034  # read by in_container in common.sh
+    REEF_EXTRA_BINDS="${REEF_EXTRA_BINDS:-} $REEF_RUNS_DIR"
     mkdir -p "$run_root"
     link="$EXAMPLE_DIR/work/$TTTD_METHOD"
     if [ -e "$link" ] && [ ! -L "$link" ]; then
