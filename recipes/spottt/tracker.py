@@ -138,6 +138,7 @@ class ForgettingTracker:
         version: int,
         *,
         prior_key: str | None = None,
+        evict: bool = True,
     ) -> KeyEstimate:
         """Fold one policy version's observations of ``key`` into its estimate.
 
@@ -146,6 +147,8 @@ class ForgettingTracker:
         archive node begins where its parent's estimate points instead of at
         the batch mean. ``version`` is the policy version that produced the
         rewards; the drift is the version gap since the key's last update.
+        ``evict=False`` defers eviction to ``enforce_capacity()``,
+        for a caller that updates several keys as one step.
         """
         if not rewards:
             raise ValueError("observe requires at least one reward")
@@ -172,7 +175,8 @@ class ForgettingTracker:
             mean = estimate.mean + (len(finite) / count) * (batch_mean - estimate.mean)
             updated = KeyEstimate(mean, count, version)
         self._estimates[key] = updated
-        self._evict()
+        if evict:
+            self.enforce_capacity()
         return updated
 
     def adopt(self, key: str, prior: KeyEstimate) -> None:
@@ -194,7 +198,8 @@ class ForgettingTracker:
                 raise ValueError(f"tracker state row for {key!r} is invalid")
             self._estimates[key] = KeyEstimate(mean, count, version)
 
-    def _evict(self) -> None:
+    def enforce_capacity(self) -> None:
+        """Drop the keys updated longest ago until at most ``max_keys`` remain."""
         # The archive itself is capped, so the table stays small; when it does
         # overflow, drop the keys updated longest ago. The task key is
         # the fallback of last resort and is never evicted.
@@ -280,10 +285,13 @@ def assign_advantages(
     }
     for key, prior in priors.items():
         tracker.adopt(key, prior)
+    # Evict once, after the whole step: a key adopted or updated this step
+    # then carries this version and is never dropped in favour of an older one.
     for key, (_, rewards) in grouped.items():
-        tracker.observe(key, rewards, version)
+        tracker.observe(key, rewards, version, evict=False)
     if shared_key is not None and shared_key not in grouped:
-        tracker.observe(shared_key, [observation.reward for observation in observations], version)
+        tracker.observe(shared_key, [observation.reward for observation in observations], version, evict=False)
+    tracker.enforce_capacity()
 
     advantages = batch_normalize(raw) if normalize else tuple(raw)
     metrics = {

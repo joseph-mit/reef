@@ -14,9 +14,10 @@ __all__ = ["SPOTTTRolloutReport"]
 class SPOTTTRolloutReport(PPOTTTRolloutReport):
     """One rollout plus the archive state it improved on and that state's parent.
 
-    The tracker keys its estimates by ``parent_id``; ``grandparent_id`` is the
-    prior a parent seen for the first time starts from. Both are empty for
-    attempts expanded from a seed.
+    The tracker keys its estimates by ``parent_id``, the archive state the
+    attempt expanded, seeds included; ``grandparent_id`` is the prior a state
+    seen for the first time starts from, empty for a seed or a pruned parent,
+    which then falls back to the task-level estimate.
     """
 
     accepted_algorithms: ClassVar[tuple[str, ...]] = ("spottt", "spo-ttt")

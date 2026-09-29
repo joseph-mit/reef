@@ -50,6 +50,10 @@ class PpotttAlgorithm(SlimeAlgorithm):
             raise RuntimeError(f"{source} requires a value model; pass --use-critic on the Slime driver")
         if getattr(args, "advantage_estimator", None) != "ppo":
             raise RuntimeError(f"{source} requires --advantage-estimator ppo")
+        # Late in a run valid attempts differ by 1e-4 while invalid ones
+        # score 0, and PPO is not invariant to reward scale: whiten each step.
+        if not getattr(args, "normalize_advantages", False):
+            raise RuntimeError(f"{source} requires --normalize-advantages")
 
         eps_clip = getattr(args, "eps_clip", None)
         if not _is_real(eps_clip) or not 0 < float(eps_clip) < 1:

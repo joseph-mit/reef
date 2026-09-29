@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import random
 import sys
+import time
 import types
 from argparse import Namespace
 
@@ -92,6 +93,35 @@ def test_terminal_reward_gae_matches_reference_on_random_inputs() -> None:
 
         assert adv_t.tolist() == pytest.approx(ref_adv, abs=1e-9)
         assert ret_t.tolist() == pytest.approx(ref_ret, abs=1e-9)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("length", [255, 256, 257, 700, 3000])
+@pytest.mark.parametrize(("gamma", "lambd"), [(1.0, 1.0), (0.99, 0.95), (0.9, 0.0), (1.0, 0.97)])
+def test_long_responses_match_reference_across_scan_chunks(length, gamma, lambd) -> None:
+    # Real responses run to ~30k tokens; the scan works in chunks, so lengths
+    # at and around the chunk size, and several chunks long, must match too.
+    rng = random.Random(length)
+    values = [rng.uniform(-3.0, 3.0) for _ in range(length)]
+    penalty = [rng.uniform(-0.2, 0.2) for _ in range(length)]
+    reward = rng.uniform(-5.0, 5.0)
+
+    adv_t, ret_t = _tensor_estimate(values, reward, penalty, gamma, lambd)
+    ref_adv, ref_ret = reference.gae(values, reference.terminal_rewards(length, reward, penalty), gamma, lambd)
+
+    assert adv_t.tolist() == pytest.approx(ref_adv, abs=1e-8)
+    assert ret_t.tolist() == pytest.approx(ref_ret, abs=1e-8)
+
+
+@pytest.mark.unit
+def test_scan_takes_no_per_token_steps() -> None:
+    from recipes.ppottt.slime.objective import discounted_reverse_cumsum
+
+    deltas = torch.linspace(-1.0, 1.0, 30_000, dtype=torch.float64)
+    started = time.perf_counter()
+    for discount in (1.0, 0.95):
+        discounted_reverse_cumsum(deltas, discount)
+    assert time.perf_counter() - started < 1.0
 
 
 @pytest.mark.unit

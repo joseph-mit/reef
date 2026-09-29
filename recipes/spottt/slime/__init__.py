@@ -34,6 +34,10 @@ class SpotttAlgorithm(SlimeAlgorithm):
     def validate_specific_args(self, args: Namespace, source: str) -> None:
         if getattr(args, "use_critic", False):
             raise RuntimeError(f"{source} has no value model; drop --use-critic")
+        if getattr(args, "normalize_advantages", False):
+            # The preparer already whitens each step's advantages per attempt;
+            # Slime would whiten again, per token, after the KL hook.
+            raise RuntimeError(f"{source} whitens advantages on the Reef side; drop --normalize-advantages")
         estimator = getattr(args, "advantage_estimator", "grpo")
         if estimator in ("ppo", "gspo", "cispo"):
             raise RuntimeError(

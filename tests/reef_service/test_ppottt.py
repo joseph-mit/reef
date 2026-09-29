@@ -301,6 +301,7 @@ def _backend_args(**overrides):
     values = {
         "use_critic": True,
         "advantage_estimator": "ppo",
+        "normalize_advantages": True,
         "eps_clip": 0.2,
         "eps_clip_high": None,
         "value_clip": 0.2,
@@ -343,6 +344,7 @@ def test_loss_family_resolves_its_advantage_hook() -> None:
     [
         ({"use_critic": False}, "value model"),
         ({"advantage_estimator": "grpo"}, "advantage-estimator ppo"),
+        ({"normalize_advantages": False}, "normalize-advantages"),
         ({"eps_clip": 0.0}, "eps-clip"),
         ({"eps_clip": 1.0}, "eps-clip"),
         ({"eps_clip": True}, "eps-clip"),

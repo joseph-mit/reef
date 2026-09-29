@@ -267,3 +267,29 @@ def test_adopt_refuses_to_overwrite_an_estimate() -> None:
     tracker.observe("q", [1.0], version=0)
     with pytest.raises(ValueError, match="already has"):
         tracker.adopt("q", tracker.estimate("q"))
+
+
+@pytest.mark.unit
+def test_a_step_at_the_key_cap_keeps_what_it_adopted_and_updated() -> None:
+    # Eviction runs once, after the step: a cold key adopted from its parent
+    # this step must not be dropped (and reset) because the parent's old
+    # version made it look stale, whatever order the keys are visited in.
+    tracker = ForgettingTracker(TrackerSettings(max_keys=3, inherit_fraction=0.5))
+    tracker.observe(TASK_KEY, [0.5], version=0)
+    tracker.observe(node_key("a"), [0.9, 0.9], version=0)
+    tracker.observe(node_key("b"), [0.1], version=1)
+    observations = [
+        Observation(node_key("d"), 1.0, prior_key=None, fallbacks=(TASK_KEY,)),
+        Observation(node_key("c"), 1.0, prior_key=node_key("a"), fallbacks=(node_key("a"), TASK_KEY)),
+    ]
+    assign_advantages(tracker, observations, version=2, normalize=False)
+
+    kept = tracker.state_dict()
+    assert len(kept) == 3 and TASK_KEY in kept
+    assert node_key("c") in kept and node_key("d") in kept, "both keys this step touched survive"
+    mean, count, version = kept[node_key("c")]
+    rho = tracker.settings.forgetting_factor(2.0)
+    inherited = 2.0 * 0.5
+    assert version == 2
+    assert count == pytest.approx(rho * inherited + 1.0)
+    assert mean == pytest.approx(0.9 + (1.0 / (rho * inherited + 1.0)) * (1.0 - 0.9))

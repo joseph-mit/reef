@@ -29,7 +29,7 @@ SPO keeps a Beta posterior over a prompt's success rate and discounts it by `rho
 - **Rewards.** Continuous: the update `m' = m + (k / n') (mean - m)` with `n' = rho n + k` is exactly the Beta posterior mean when rewards are 0 or 1, and the same moving average otherwise.
 - **Forgetting.** Once per policy version, not once per observation: siblings sampled in one step come from one policy, and discounting between them would forget observations no policy change touched. The drift is the number of committed steps since the key was last updated, so `rho = 2^(-steps / half_life)`, clipped to SPO's `[0.875, 0.96]`.
 
-Every baseline is read before the step updates any key, so it never depends on the reward it is subtracted from. The first step, when every key is cold, centres on the step's mean. Advantages are then normalised across the step, as in SPO.
+Every baseline is read before the step updates any key, so it never depends on the reward it is subtracted from. The first step, when every key is cold, centres on the step's mean. Advantages are then normalised across the step, as in SPO, with each attempt weighted equally; PPO-TTT uses Slime's per-token whitening, which weights long attempts more, so the two recipes differ there as well as in the baseline. When a step leaves the tracker over its 4,096-key cap, the keys updated longest ago are dropped once the whole step is folded in.
 
 ## What it costs
 

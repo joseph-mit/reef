@@ -254,6 +254,7 @@ def test_loss_family_takes_shipped_advantages_on_the_clipped_loss() -> None:
         ({"eps_clip": 0.0}, "eps-clip"),
         ({"kl_coef": 0.0}, "kl-coef"),
         ({"kl_coef": float("inf")}, "kl-coef"),
+        ({"normalize_advantages": True}, "normalize-advantages"),
     ],
 )
 def test_loss_family_rejects_objective_drift(overrides, message) -> None:

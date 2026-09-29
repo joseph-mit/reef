@@ -19,6 +19,39 @@ import torch
 from reef.train.slime_backend.algorithm import objective
 
 
+_SCAN_CHUNK = 256
+
+
+def discounted_reverse_cumsum(values: torch.Tensor, discount: float) -> torch.Tensor:
+    """``y_t = sum_{s >= t} discount^(s - t) * values_s`` over a 1-D tensor, without a per-token loop.
+
+    GAE is this scan over the TD errors with ``discount = gamma * lambd``. A
+    discount of 1 is a reversed cumulative sum. Otherwise the sequence is cut
+    into chunks from the end: inside a chunk one small triangular matrix of
+    powers applies the discount, and the chunk's first value carries into the
+    chunk before it, so no power ever exceeds the chunk length and nothing
+    overflows or underflows on long responses.
+    """
+    if discount == 1.0:
+        return values.flip(0).cumsum(0).flip(0)
+    if discount == 0.0:
+        return values.clone()
+    length = values.numel()
+    width = min(_SCAN_CHUNK, length)
+    offsets = torch.arange(width, device=values.device, dtype=values.dtype)
+    lags = offsets.unsqueeze(0) - offsets.unsqueeze(1)
+    powers = torch.where(lags >= 0, discount ** lags.clamp(min=0), torch.zeros_like(lags))
+    scanned = torch.empty_like(values)
+    carry = values.new_zeros(())
+    for end in range(length, 0, -width):
+        start = max(0, end - width)
+        size = end - start
+        chunk = powers[:size, :size] @ values[start:end] + carry * discount ** (size - offsets[:size])
+        scanned[start:end] = chunk
+        carry = chunk[0]
+    return scanned
+
+
 def get_terminal_reward_advantages_and_returns(
     total_len: int,
     response_len: int,
@@ -44,9 +77,10 @@ def get_terminal_reward_advantages_and_returns(
     treats a chain of archive states as a multi-step trajectory can reuse the code.
 
     Values are gathered across context-parallel ranks before the recurrence
-    and the results sliced back afterwards, matching the SAO helper. Returned
-    advantages are detached; returns are ``advantages + values`` and keep the
-    value graph for the critic loss.
+    and the results sliced back afterwards, matching the SAO helper. The
+    recurrence runs as one vectorised scan (``discounted_reverse_cumsum``), not
+    a Python loop over tokens. Returned advantages are detached; returns are
+    ``advantages + values`` and keep the value graph for the critic loss.
     """
     from megatron.core import mpu
 
@@ -71,15 +105,14 @@ def get_terminal_reward_advantages_and_returns(
         rewards[response_len - 1] = rewards[response_len - 1] + float(reward)
 
     advantages = torch.zeros_like(full_values)
+    if response_len > 0:
+        values_seen = full_values[:response_len]
+        next_values = torch.cat((values_seen[1:], values_seen.new_zeros(1)))
+        deltas = rewards[:response_len] + gamma * next_values - values_seen
+        advantages[:response_len] = discounted_reverse_cumsum(deltas, gamma * lambd)
     returns = torch.zeros_like(full_values)
-    last_gae = torch.zeros((), dtype=full_values.dtype, device=full_values.device)
-    next_value = torch.zeros((), dtype=full_values.dtype, device=full_values.device)
-    for t in reversed(range(response_len)):
-        delta = rewards[t] + gamma * next_value - full_values[t]
-        last_gae = delta + gamma * lambd * last_gae
-        advantages[t] = last_gae
-        returns[t] = last_gae + full_values[t]
-        next_value = full_values[t]
+    if response_len > 0:
+        returns[:response_len] = advantages[:response_len] + full_values[:response_len]
 
     if cp_size > 1:
         from slime.backends.megatron_utils.cp_utils import slice_log_prob_with_cp
