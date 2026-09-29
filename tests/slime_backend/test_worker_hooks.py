@@ -102,6 +102,28 @@ def test_external_batch_and_step_size_hooks_are_idempotent(monkeypatch: pytest.M
 
 
 @pytest.mark.unit
+def test_training_steps_record_allocator_pressure(monkeypatch: pytest.MonkeyPatch) -> None:
+    logged: list[dict[str, object]] = []
+    logging_utils = _stub_module(
+        monkeypatch,
+        "slime.utils.logging_utils",
+        log=lambda _args, metrics, _step: logged.append(metrics),
+    )
+    monkeypatch.setattr(worker_hooks, "_allocator_metrics", lambda: {"memory/alloc_retries": 3.0})
+    worker_hooks.drain_worker_metrics()
+    worker_hooks._install_metric_capture()
+
+    logging_utils.log("args", {"train/loss": 1.0, "train/step": 0}, "train/step")
+    logging_utils.log("args", {"rollout/kl": 0.1}, "rollout/step")
+    drained = worker_hooks.drain_worker_metrics()
+    assert drained["train_steps"] == [{"train/loss": 1.0, "train/step": 0.0, "memory/alloc_retries": 3.0}]
+    assert drained["memory/alloc_retries"] == 3.0 and drained["rollout/kl"] == 0.1
+    # Slime's own logger still sees exactly what it logged.
+    assert logged == [{"train/loss": 1.0, "train/step": 0}, {"rollout/kl": 0.1}]
+    assert worker_hooks.drain_worker_metrics() == {}
+
+
+@pytest.mark.unit
 def test_metric_and_rollout_logging_hooks_keep_reef_fields_local(monkeypatch: pytest.MonkeyPatch) -> None:
     logged: list[object] = []
     logging_utils = _stub_module(

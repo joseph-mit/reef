@@ -141,14 +141,37 @@ def _install_metric_capture() -> None:
         return
 
     def log(args, metrics, step_key):
-        record_worker_metrics(metrics)
+        captured = metrics
         if step_key == "train/step":
-            record_worker_step(metrics)
+            captured = {**metrics, **_allocator_metrics()}
+            record_worker_step(captured)
+        record_worker_metrics(captured)
         return current(args, metrics, step_key)
 
     marked_log: Any = log
     marked_log._reef_metric_capture = True
     logging_utils.log = log
+
+
+def _allocator_metrics() -> dict[str, float]:
+    """This rank's CUDA caching-allocator pressure, cumulative for the process.
+
+    A retry means an allocation found no fitting cached block, so the
+    allocator freed its whole cache and asked the driver again, a device-wide
+    stall. A few per run are normal; one per microbatch makes training slow.
+    """
+    import torch
+
+    if not torch.cuda.is_available() or not torch.cuda.is_initialized():
+        return {}
+    stats = torch.cuda.memory_stats()
+    gib = float(2**30)
+    return {
+        "memory/alloc_retries": float(stats.get("num_alloc_retries", 0)),
+        "memory/ooms": float(stats.get("num_ooms", 0)),
+        "memory/peak_allocated_gb": stats.get("allocated_bytes.all.peak", 0) / gib,
+        "memory/peak_reserved_gb": stats.get("reserved_bytes.all.peak", 0) / gib,
+    }
 
 
 def _install_rollout_logging() -> None:

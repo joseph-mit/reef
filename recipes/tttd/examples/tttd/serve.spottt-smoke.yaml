@@ -140,7 +140,7 @@ services:
       --sglang-mem-fraction-static=0.5
       --sglang-disable-prefill-cuda-graph
       --sglang-cuda-graph-max-bs-decode=128
-      --train-env-vars='{"PYTORCH_CUDA_ALLOC_CONF":"max_split_size_mb:512"}'
+      --train-env-vars='{"PYTORCH_CUDA_ALLOC_CONF":"expandable_segments:True"}'
       --log-probs-chunk-size=${TTTD_LOG_PROBS_CHUNK_SIZE}
       --attention-dropout=0
       --hidden-dropout=0

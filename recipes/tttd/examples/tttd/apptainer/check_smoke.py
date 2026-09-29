@@ -125,6 +125,11 @@ def check(method_name: str, task: str, state: Path) -> list[Stage]:
         shown = {key: metrics[key] for key in sorted(metrics) if any(part in key for part in ("clip", "kl", "loss"))}
         if shown:
             update.note(f"step {step} metrics: {json.dumps(shown, sort_keys=True)}")
+        # Before the step's first update the trainer and the engine hold the
+        # same weights, so this measures serving drift, not training.
+        gap = (metrics.get("train_steps") or [{}])[0].get("train/ppo_kl")
+        if isinstance(gap, (int, float)):
+            update.note(f"step {step}: trainer vs sampler log-prob gap before any update (ppo_kl) {gap:.6f}")
 
     checkpoint = Stage("checkpoint save")
     for step in (1, 2):

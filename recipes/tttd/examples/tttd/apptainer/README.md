@@ -44,10 +44,14 @@ TTTD_METHOD=spottt TTTD_TASK=circle_packing_26 TTTD_RUN_STEPS=10 \
     sbatch --gres=gpu:2 recipes/tttd/examples/tttd/apptainer/run.sbatch
 ```
 
+## Checking a run
+
+`run_status.py <state directory>` prints one row per committed step: mean and best reward, step time, training throughput, allocator retries, the trainer-sampler log-prob gap before any update, and the sampled policy's KL to the base. It reads only files, so it runs on the login node while the job runs.
+
 ## Known limits
 
 - The SPO-TTT smoke has passed on an Engaging H200 node (all five stages, about 13 minutes). With thinking off, the smoke's attempts all scored 0, so its update had zero advantages: it checks the pipeline, not learning. The scripts are also tested on CPU with a stand-in for Apptainer and the GPU stack (`tests/test_tttd_smoke_job.py`, `tests/test_tttd_local_driver.py`).
-- Speed: on two H200s the first SPO-TTT step on circle_packing_26 took about 3.3 hours (about 1 h 16 min writing and scoring the 512 attempts, then about 14 s per attempt in training), against about 38 minutes per step in the published run on two B200s. The cause is not yet known.
+- Speed: on two H200s the first SPO-TTT step on circle_packing_26 took about 3.3 hours: 59 minutes writing and scoring the 512 attempts, 18 minutes of frozen-base log-probabilities and 2 hours of training at about 900 tokens/s, against about 8,300 tokens/s in the published run on two B200s. Training held about 135 GB of the 140 GB on each GPU with `max_split_size_mb:512`, which can stop the allocator reusing its large blocks across attempts of different lengths (not yet confirmed as the cause). The configs now use `expandable_segments:True` for the trainer, as Slime's own colocated tests do; `run_status.py` reports each step's allocator retries and throughput, which show whether that was the cause.
 - Host memory: the SPO-TTT smoke peaked at about 168 GiB. The first PPO-TTT smoke was killed at a 256 GB limit after loading the actor and the critic, whose full parameters and optimiser state are offloaded to host memory while idle, so `smoke.sbatch` asks for 768 GB and a PPO-TTT `run.sbatch` job needs `--mem=768G`.
 - Reef's checkpoint storage check sees a shared filesystem's total size, not your quota. A PPO-TTT checkpoint carries a full 8B critic with its optimiser state (from the arithmetic, over 100 GB; not yet measured), and Reef keeps the latest checkpoint while writing the next, so keep several hundred GB free wherever its state lives.
 - Several jobs can share a node: each job takes free ports for Reef, the judge and the SGLang router (`TTTD_REEF_PORT`, `TTTD_JUDGE_PORT`, `TTTD_ROUTER_PORT`; run.sh alone uses 8900, 8082 and 30000). Ray and Slime choose their own free ports, apart from Ray's dashboard agent (52365), whose clash Ray logs and carries on without it.
