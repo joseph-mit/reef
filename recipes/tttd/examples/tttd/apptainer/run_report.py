@@ -8,7 +8,8 @@ kept on a node's local disk is read on that node through srun). It prints:
 - a table per committed step: mean score, share of failed attempts (score 0),
   mean of the valid attempts, median, mean of the top 10%, the step's best
   attempt, the best so far, step time, and training signals (policy entropy,
-  KL to the base model, clip fraction, gradient norm) where Reef recorded them;
+  KL to the base model, clip fraction, gradient norm) where Reef recorded them,
+  and for PPO-TTT the value loss at the step's first and last critic update;
 - what the run recorded: the metric names in Reef's commits, and how many
   per-attempt records Reef still holds and when it starts deleting them.
 
@@ -41,6 +42,8 @@ TRAINING_COLUMNS = {
     "clip frac": "pg_clipfrac",
     "grad norm": "grad_norm",
 }
+CRITIC_STEPS_KEY = "critic_train_steps"
+CRITIC_LOSS = "train/critic-value_loss"
 
 
 def _jsonl(path: Path) -> list[dict[str, Any]]:
@@ -193,6 +196,11 @@ def step_table(state: Path, scores: Mapping[int, list[float]]) -> list[dict[str,
         }
         for name, suffix in TRAINING_COLUMNS.items():
             row[name] = _metric(metrics, suffix)
+        # The first update sees the step's rewards before the critic fits them.
+        losses = [_number(entry.get(CRITIC_LOSS)) for entry in metrics.get(CRITIC_STEPS_KEY) or []]
+        losses = [loss for loss in losses if loss is not None]
+        row["critic loss start"] = losses[0] if losses else None
+        row["critic loss end"] = losses[-1] if losses else None
         rows.append(row)
     return rows
 
@@ -206,7 +214,7 @@ def _cell(name: str, value: float | None) -> str:
         return f"{value:.6f}"
     if name in ("fail %", "minutes"):
         return f"{value:.0f}"
-    if name in ("kl base", "clip frac"):
+    if name in ("kl base", "clip frac", "critic loss start", "critic loss end"):
         return f"{value:.5f}"
     return f"{value:.3f}"
 
@@ -221,15 +229,19 @@ def render(rows: list[dict[str, float | None]]) -> str:
 def inventory(state: Path, held: Mapping[str, Any], saved: int) -> str:
     keys: set[str] = set()
     step_keys: set[str] = set()
+    critic_keys: set[str] = set()
     for path in sorted((state / "agent-record").glob("*.commits.jsonl")):
         for record in _jsonl(path):
             metrics = record.get("metrics") or {}
-            keys.update(key for key in metrics if key != "train_steps")
+            keys.update(key for key in metrics if key not in ("train_steps", CRITIC_STEPS_KEY))
             for entry in metrics.get("train_steps") or []:
                 step_keys.update(entry)
+            for entry in metrics.get(CRITIC_STEPS_KEY) or []:
+                critic_keys.update(entry)
     lines = [
         f"commit metrics: {', '.join(sorted(keys)) or 'none'}",
         f"per-update training metrics: {', '.join(sorted(step_keys)) or 'none'}",
+        f"per-update critic metrics: {', '.join(sorted(critic_keys)) or 'none'}",
         f"records Reef holds: {held.get('report', 0)} scored attempts, {held.get('inference', 0)} generations, "
         f"{held.get('compacted', 0)} already consumed by training",
         f"repeated attempts left out (a resumed step's later report at a slot Reef had already filled;"

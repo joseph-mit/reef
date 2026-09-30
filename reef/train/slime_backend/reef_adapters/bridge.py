@@ -62,12 +62,30 @@ from reef.train.slime_backend.reef_adapters.training_job.marker import (
 )
 from reef.train.slime_backend.reef_adapters.training_job.scenarios import ScenarioHistory, history_path
 from reef.train.slime_backend.reef_adapters.training_job.storage import CheckpointStorage, RetentionConfig
+from reef.train.slime_backend.reef_adapters.worker_hooks import WORKER_STEP_METRICS_KEY
 
 DEFAULT_BRIDGE_ACTOR_NAME = DEFAULT_ACTOR_NAME
 
 # One training step (train + checkpoint + publish) legitimately takes hours;
 # this bounds a single Ray RPC from the bridge to its workers.
 _TRAIN_RPC_TIMEOUT_S = 14_400
+
+#: Prefix of the value model's metrics in a job's metrics. Its workers log the
+#: same ``rollout/*``, ``memory/*`` and ``train/step`` names as the actor's.
+CRITIC_METRICS_PREFIX = "critic/"
+#: Key of the value model's per-optimizer-step metric dicts, in order.
+CRITIC_STEP_METRICS_KEY = "critic_train_steps"
+
+
+def critic_job_metrics(metrics: Mapping[str, Any]) -> dict[str, Any]:
+    """The value model's drained worker metrics, named apart from the actor's."""
+    named: dict[str, Any] = {}
+    for name, value in metrics.items():
+        if name == WORKER_STEP_METRICS_KEY:
+            named[CRITIC_STEP_METRICS_KEY] = value
+        else:
+            named[CRITIC_METRICS_PREFIX + name] = value
+    return named
 
 
 @dataclass(frozen=True, slots=True)
@@ -1045,6 +1063,10 @@ class TrainBridgeActorImpl:
                     {},
                 )
                 train_metrics.update(worker_metrics)
+                if self._critic_group is not None:
+                    # Every critic pass of the step: value loss, clip fraction
+                    # and gradient norm per optimizer step.
+                    train_metrics.update(critic_job_metrics(self._get(self._critic_group.async_pop_rank0_metrics())))
                 train_metrics.update(algorithm_metrics)
                 self._phase = "checkpointing"
                 self._group.save_model(rollout_id, force_sync=True)

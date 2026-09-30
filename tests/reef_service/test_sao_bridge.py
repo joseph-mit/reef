@@ -383,6 +383,21 @@ def test_sao_durable_record_returns_backend_and_worker_metrics(tmp_path, _local_
 
 
 @pytest.mark.unit
+def test_the_critics_metrics_are_returned_apart_from_the_actors(tmp_path, _local_ray_get) -> None:
+    actor, _, critic_group, payload = _sao_actor(tmp_path, worker_metrics={"train/step": 3.0})
+    steps = [{"train/critic-value_loss": 0.5, "train/step": 3.0}, {"train/critic-value_loss": 0.2}]
+    critic_group._actor_handlers[0].metrics = {"train/critic-value_loss": 0.2, "train/step": 5.0, "train_steps": steps}
+
+    result = _execute_and_update_weights(actor, payload)
+
+    assert result.metrics["train/step"] == 3.0
+    assert result.metrics["critic/train/step"] == 5.0
+    assert result.metrics["critic/train/critic-value_loss"] == 0.2
+    assert result.metrics["critic_train_steps"] == steps
+    assert "train_steps" not in result.metrics
+
+
+@pytest.mark.unit
 def test_sao_commit_saves_the_critic_alongside_the_actor(tmp_path, _local_ray_get) -> None:
     actor, actor_group, critic_group, payload = _sao_actor(
         tmp_path, critic_save_root=str(tmp_path / "megatron-critic")

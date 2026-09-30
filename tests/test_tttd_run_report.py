@@ -157,3 +157,20 @@ def test_a_csv_saved_with_repeats_is_corrected_from_reefs_records(tmp_path: Path
 
     (row,) = run_report.step_table(state, run_report.load_saved_scores(path))
     assert row["attempts"] == 2 and row["mean"] == 0.5
+
+
+@pytest.mark.unit
+def test_ppo_steps_show_the_critic_loss_at_its_first_and_last_update(tmp_path: Path, capsys) -> None:
+    state = _state(tmp_path, [1.0])
+    critic = [{"train/critic-value_loss": 0.9, "train/step": 0}, {"train/critic-value_loss": 0.3, "train/step": 0}]
+    (state / "agent-record" / "s.commits.jsonl").write_text(
+        json.dumps({"step": 1, "metrics": {"critic_train_steps": critic}}) + "\n"
+    )
+
+    run_report.main([str(state)])
+
+    (row,) = run_report.step_table(state, run_report.load_saved_scores(state / "report" / "attempts.csv"))
+    assert row["critic loss start"] == 0.9 and row["critic loss end"] == 0.3
+    output = capsys.readouterr().out
+    assert "per-update critic metrics: train/critic-value_loss, train/step" in output
+    assert "commit metrics: none" in output
