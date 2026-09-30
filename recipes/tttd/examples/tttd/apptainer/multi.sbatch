@@ -23,7 +23,7 @@
 #SBATCH --gres=gpu:6
 #SBATCH --cpus-per-task=64
 #SBATCH --mem=1024G
-#SBATCH --time=2-00:00:00
+#SBATCH --time=7-00:00:00  # pi_ppliang's maximum
 #SBATCH --output=reef-multi-%j.out
 
 set -euo pipefail
