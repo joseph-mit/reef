@@ -24,6 +24,7 @@ from .agent import ReefTTTDiscoverHarness
 from .methods import Method
 from .run_controller import ReefTrainingStatusClient, TTTDRunController, TTTDRunIdentity, TTTDRunStateStore
 from .search import Scorer, TTTDChatRequestBuilder
+from .step_records import StepRecorder
 
 # The Reef run.sh started; TTTD_REEF_PORT moves it when two stacks share a machine.
 SERVICE_URL = f"http://127.0.0.1:{os.environ.get('TTTD_REEF_PORT', '8900')}"
@@ -132,6 +133,8 @@ def build_run(
         TTTDRunStateStore(state_path, identity),
         emit=emit,
         wait_for_training=method.train,
+        # Every attempt of every step, next to the search state.
+        step_records=StepRecorder(Path(state_path).parent / "attempts", invalid_reward=INVALID_REWARD),
     )
     return harness, controller
 

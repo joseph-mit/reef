@@ -17,6 +17,7 @@ from typing import Any
 import torch
 
 from reef.train.slime_backend.algorithm import objective
+from reef.train.slime_backend.reef_adapters.worker_hooks import record_worker_metrics
 
 
 _SCAN_CHUNK = 256
@@ -164,3 +165,52 @@ def ppottt_advantages(args: Namespace, rollout_data: dict[str, Any]) -> None:
         returns.append(ret)
     rollout_data["advantages"] = advantages
     rollout_data["returns"] = returns
+    record_worker_metrics(value_fit_metrics(values, rewards, response_lengths))
+
+
+def value_fit_metrics(
+    values: list[torch.Tensor], rewards: list[float], response_lengths: list[int]
+) -> dict[str, float]:
+    """How well the value model predicted this step's scores, before it trained on them.
+
+    The prediction for an attempt is the value at its first response token,
+    ``V(s)`` for the state the attempt starts from. On the actor these are the
+    values of the critic's first pass (PPO's ``V_old``); on the critic, of its
+    latest pass. Only this rank's share of the step is summarised, since a
+    cross-rank reduction here would add a collective to every training step.
+    ``value_explained_variance`` is ``1 - Var(r - V) / Var(r)``: 1 for a
+    perfect critic, 0 for one no better than a constant.
+    """
+    from megatron.core import mpu
+
+    if mpu.get_context_parallel_world_size() > 1:
+        return {}
+    pairs = [
+        (float(value[0]), float(reward))
+        for value, reward, length in zip(values, rewards, response_lengths, strict=True)
+        if int(length) > 0 and value.numel() > 0
+    ]
+    if not pairs:
+        return {}
+    predictions = torch.tensor([pair[0] for pair in pairs], dtype=torch.float64)
+    scores = torch.tensor([pair[1] for pair in pairs], dtype=torch.float64)
+    residual = scores - predictions
+    metrics = {
+        "ppottt/value_mean": float(predictions.mean()),
+        "ppottt/value_reward_mean": float(scores.mean()),
+        "ppottt/value_mse": float((residual**2).mean()),
+        "ppottt/value_raw_advantage_std": float(residual.std(unbiased=False)),
+    }
+    failed = scores == 0
+    if bool(failed.any()):
+        metrics["ppottt/value_mean_failed"] = float(predictions[failed].mean())
+    if bool((~failed).any()):
+        metrics["ppottt/value_mean_valid"] = float(predictions[~failed].mean())
+    score_var = float(scores.var(unbiased=False))
+    if score_var > 0:
+        metrics["ppottt/value_explained_variance"] = 1 - float(residual.var(unbiased=False)) / score_var
+        if float(predictions.var(unbiased=False)) > 0:
+            metrics["ppottt/value_reward_correlation"] = float(
+                torch.corrcoef(torch.stack((predictions, scores)))[0, 1]
+            )
+    return metrics

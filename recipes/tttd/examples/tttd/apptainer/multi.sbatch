@@ -57,6 +57,7 @@ if [ "${#order[@]}" -ne "${#visible[@]}" ]; then
     echo "the GPU ranking did not cover all ${#visible[@]} GPUs" >&2
     exit 1
 fi
+start_gpu_log "$REEF_REPO/reef-multi-$JOB-gpus.csv"
 
 # The first free port at or above $1.
 port_from() {
@@ -98,6 +99,8 @@ for run in $TTTD_RUNS; do
 
     output="$REEF_REPO/reef-multi-$JOB-$method.out"
     echo "$method on $TTTD_TASK: GPUs $gpus, steps ${steps:-until the time limit}, state under $runs_dir, output $output"
+    # The same GPUs by PCI bus, the name the GPU log uses.
+    echo "$method PCI buses: $(nvidia-smi --query-gpu=pci.bus_id --format=csv,noheader -i "$gpus" 2> /dev/null | paste -sd ' ' || true)"
     (
         export TTTD_METHOD=$method CUDA_VISIBLE_DEVICES=$gpus
         export TTTD_RUN_STEPS=${steps:-}

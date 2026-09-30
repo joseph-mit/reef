@@ -125,11 +125,15 @@ class ForgettingTracker:
 
     def baseline(self, key: str, fallbacks: Iterable[str] = ()) -> float | None:
         """The first warm estimate along ``key`` then ``fallbacks``, or ``None`` when every key is cold."""
+        return self.baseline_with_source(key, fallbacks)[0]
+
+    def baseline_with_source(self, key: str, fallbacks: Iterable[str] = ()) -> tuple[float | None, str | None]:
+        """The first warm estimate along ``key`` then ``fallbacks``, and the key it came from."""
         for candidate in (key, *fallbacks):
             estimate = self._estimates.get(candidate)
             if estimate is not None:
-                return estimate.mean
-        return None
+                return estimate.mean, candidate
+        return None, None
 
     def observe(
         self,
@@ -263,13 +267,24 @@ def assign_advantages(
         return (), {"tracked_fraction": 0.0, "tracker_keys": float(len(tracker))}
     step_mean = math.fsum(observation.reward for observation in observations) / len(observations)
     raw: list[float] = []
+    baselines: list[float] = []
     warm = 0
+    # Where each baseline came from: the attempt's own key, the prior (a
+    # cold node's parent), or the task-level estimate.
+    sources = {"own": 0, "prior": 0, "task": 0}
     for observation in observations:
-        baseline = tracker.baseline(observation.key, observation.fallbacks)
+        baseline, source = tracker.baseline_with_source(observation.key, observation.fallbacks)
         if baseline is None:
             baseline = step_mean
         else:
             warm += 1
+            if source == TASK_KEY:
+                sources["task"] += 1
+            elif source == observation.key:
+                sources["own"] += 1
+            else:
+                sources["prior"] += 1
+        baselines.append(baseline)
         raw.append(observation.reward - baseline)
 
     grouped: dict[str, tuple[str | None, list[float]]] = {}
@@ -294,10 +309,44 @@ def assign_advantages(
     tracker.enforce_capacity()
 
     advantages = batch_normalize(raw) if normalize else tuple(raw)
+    rewards = [observation.reward for observation in observations]
     metrics = {
         "tracked_fraction": warm / len(observations),
         "raw_advantage_abs_mean": math.fsum(abs(value) for value in raw) / len(raw),
         "advantage_abs_mean": math.fsum(abs(value) for value in advantages) / len(advantages),
         "tracker_keys": float(len(tracker)),
+        **{f"baseline_from_{name}_fraction": count / len(observations) for name, count in sources.items()},
+        **baseline_fit(rewards, baselines),
     }
     return advantages, metrics
+
+
+def baseline_fit(rewards: Sequence[float], baselines: Sequence[float]) -> dict[str, float]:
+    """How well baselines predicted the rewards they were subtracted from.
+
+    ``baseline_explained_variance`` is ``1 - Var(r - b) / Var(r)``: 1 for a
+    perfect baseline, 0 for one no better than a constant, negative for one
+    that adds noise. ``baseline_reward_correlation`` is Pearson's r. Both are
+    left out when the rewards do not vary.
+    """
+    count = len(rewards)
+    reward_mean = math.fsum(rewards) / count
+    baseline_mean = math.fsum(baselines) / count
+    residual = [reward - baseline for reward, baseline in zip(rewards, baselines, strict=True)]
+    residual_mean = math.fsum(residual) / count
+    reward_var = math.fsum((reward - reward_mean) ** 2 for reward in rewards) / count
+    baseline_var = math.fsum((baseline - baseline_mean) ** 2 for baseline in baselines) / count
+    residual_var = math.fsum((value - residual_mean) ** 2 for value in residual) / count
+    metrics = {"baseline_mean": baseline_mean, "raw_advantage_std": math.sqrt(residual_var)}
+    if reward_var > 0:
+        metrics["baseline_explained_variance"] = 1 - residual_var / reward_var
+        if baseline_var > 0:
+            covariance = (
+                math.fsum(
+                    (reward - reward_mean) * (baseline - baseline_mean)
+                    for reward, baseline in zip(rewards, baselines, strict=True)
+                )
+                / count
+            )
+            metrics["baseline_reward_correlation"] = covariance / math.sqrt(reward_var * baseline_var)
+    return metrics

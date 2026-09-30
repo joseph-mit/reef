@@ -37,7 +37,12 @@ def _install_single_rank_mpu() -> None:
 
 _install_single_rank_mpu()
 
-from recipes.ppottt.slime.objective import get_terminal_reward_advantages_and_returns, ppottt_advantages
+from recipes.ppottt.slime.objective import (
+    get_terminal_reward_advantages_and_returns,
+    ppottt_advantages,
+    value_fit_metrics,
+)
+from reef.train.slime_backend.reef_adapters.worker_hooks import drain_worker_metrics
 
 from .reference_algorithms import ppottt as reference
 
@@ -197,3 +202,30 @@ def test_hook_without_values_raises() -> None:
 
     with pytest.raises(ValueError, match="critic values"):
         ppottt_advantages(Namespace(kl_coef=0.1, gamma=1.0, lambd=1.0), data)
+
+
+@pytest.mark.unit
+def test_hook_records_how_well_the_first_token_value_predicted_the_score() -> None:
+    drain_worker_metrics()
+    data = _rollout_data([[1.0, 9.0], [0.5, 9.0], [2.0, 9.0]], [2.0, 0.0, 2.0])
+
+    ppottt_advantages(Namespace(kl_coef=0.0, gamma=1.0, lambd=1.0), data)
+
+    metrics = drain_worker_metrics()
+    # Predictions 1, 0.5, 2 against scores 2, 0, 2: residuals 1, -0.5, 0.
+    assert metrics["ppottt/value_mean"] == pytest.approx(3.5 / 3)
+    assert metrics["ppottt/value_mse"] == pytest.approx(1.25 / 3)
+    assert metrics["ppottt/value_mean_failed"] == 0.5 and metrics["ppottt/value_mean_valid"] == 1.5
+    residual_var = torch.tensor([1.0, -0.5, 0.0]).var(unbiased=False).item()
+    score_var = torch.tensor([2.0, 0.0, 2.0]).var(unbiased=False).item()
+    assert metrics["ppottt/value_explained_variance"] == pytest.approx(1 - residual_var / score_var)
+    assert 0 < metrics["ppottt/value_reward_correlation"] <= 1
+
+
+@pytest.mark.unit
+def test_value_fit_skips_empty_responses_and_constant_scores() -> None:
+    values = [torch.tensor([1.0]), torch.tensor([])]
+    metrics = value_fit_metrics(values, [2.0, 2.0], [1, 0])
+
+    assert metrics["ppottt/value_mse"] == 1.0
+    assert "ppottt/value_explained_variance" not in metrics

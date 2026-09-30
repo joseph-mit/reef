@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 Scorer = Callable[[str], "ScoredSolution"]
@@ -62,6 +63,30 @@ class RolloutResult:
     error: str | None = None
     search_value: float | None = None
     agent_record_id: str | None = None
+    # What the scorer said about the program (the judge's reason), and what
+    # the attempt cost; kept for the per-step records, not used by the search.
+    output: str = ""
+    group: int | None = None
+    rollout: int | None = None
+    generation_seconds: float | None = None
+    evaluation_seconds: float | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    finish_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class SelectedParent:
+    """A parent as PUCT saw it when it chose it, before this step's expansion."""
+
+    candidate_id: str
+    reward: float
+    value: float
+    visits: int
+    depth: int
+    seed: bool
+    puct_score: float
+    value_rank: int
 
 
 class PUCTArchive:
@@ -180,6 +205,33 @@ class PUCTArchive:
         self._prune_top_children()
         self._prune()
         return tuple(child for child in child_candidates if child.candidate_id in self._items)
+
+    def depth(self, candidate_id: str) -> int:
+        """Ancestors kept in the archive above a candidate; 0 for a seed or a pruned parent."""
+        depth = 0
+        current = self._items.get(candidate_id)
+        while current is not None and current.parent_id is not None and current.parent_id in self._items:
+            depth += 1
+            current = self._items[current.parent_id]
+        return depth
+
+    def describe_selection(self, selected: Sequence[Candidate]) -> tuple[SelectedParent, ...]:
+        scores = self.scores()
+        ranked = sorted(self._items.values(), key=lambda item: -item.value)
+        ranks = {item.candidate_id: rank for rank, item in enumerate(ranked)}
+        return tuple(
+            SelectedParent(
+                candidate_id=parent.candidate_id,
+                reward=parent.reward,
+                value=parent.value,
+                visits=parent.visits,
+                depth=self.depth(parent.candidate_id),
+                seed=parent.seed,
+                puct_score=scores.get(parent.candidate_id, math.nan),
+                value_rank=ranks.get(parent.candidate_id, -1),
+            )
+            for parent in selected
+        )
 
     def best(self) -> Candidate:
         if not self._items:
@@ -450,6 +502,8 @@ class _TTTDiscoverHarnessBase:
         self.archive = PUCTArchive(exploration=exploration)
         for _ in range(groups_per_step):
             self.archive.add_seed("", 0.0, 0.0)
+        # The parents of the last step, as PUCT saw them when it chose them.
+        self.last_selection: tuple[SelectedParent, ...] = ()
 
     def run_step(self, step: int) -> tuple[RolloutResult, ...]:
         parents = self.archive.select(self.groups_per_step)
@@ -457,6 +511,7 @@ class _TTTDiscoverHarnessBase:
             raise RuntimeError(
                 f"PUCT could select only {len(parents)} independent lineages for {self.groups_per_step} groups"
             )
+        self.last_selection = self.archive.describe_selection(parents)
         tasks = [
             (
                 parent,
@@ -526,12 +581,19 @@ class _TTTDiscoverHarnessBase:
         solution = ""
         reward = self.invalid_reward
         search_value: float | None = None
+        output = ""
+        evaluation_seconds: float | None = None
         try:
             action = self.action_from_response(response)
             solution = extract_solution(action)
             if not solution:
                 raise ValueError("response does not contain a Python code block")
-            scored = self.scorer(solution)
+            started = time.monotonic()
+            try:
+                scored = self.scorer(solution)
+            finally:
+                evaluation_seconds = time.monotonic() - started
+            output = scored.output
             reward = float(scored.reward)
             search_value = float(scored.value)
             if not math.isfinite(reward) or not math.isfinite(search_value):
@@ -541,7 +603,21 @@ class _TTTDiscoverHarnessBase:
             solution = ""
             reward = self.invalid_reward
             search_value = None
-        return RolloutResult(parent.candidate_id, solution, reward, action, error, search_value)
+        usage = response.get("usage") if isinstance(response, Mapping) else None
+        usage = usage if isinstance(usage, Mapping) else {}
+        return RolloutResult(
+            parent.candidate_id,
+            solution,
+            reward,
+            action,
+            error,
+            search_value,
+            output=output,
+            evaluation_seconds=evaluation_seconds,
+            prompt_tokens=_count(usage.get("prompt_tokens")),
+            completion_tokens=_count(usage.get("completion_tokens")),
+            finish_reason=_finish_reason(response),
+        )
 
 
 class TTTDiscoverHarness(_TTTDiscoverHarnessBase):
@@ -583,11 +659,32 @@ class TTTDiscoverHarness(_TTTDiscoverHarnessBase):
         parent: Candidate,
         _comparison_set: str,
         _step: int,
-        _group_index: int,
-        _rollout_index: int,
+        group_index: int,
+        rollout_index: int,
     ) -> RolloutResult:
+        started = time.monotonic()
         response = self.generate(self._request_payload(parent))
-        return self._evaluate_response(parent, response)
+        generation_seconds = time.monotonic() - started
+        return replace(
+            self._evaluate_response(parent, response),
+            group=group_index,
+            rollout=rollout_index,
+            generation_seconds=generation_seconds,
+        )
+
+
+def _count(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _finish_reason(response: Mapping[str, Any]) -> str | None:
+    """Why generation stopped ("length" means the token limit cut it off)."""
+    choices = response.get("choices") if isinstance(response, Mapping) else None
+    if isinstance(choices, Sequence) and choices and isinstance(choices[0], Mapping):
+        reason = choices[0].get("finish_reason")
+        if isinstance(reason, str):
+            return reason
+    return None
 
 
 def openai_action(response: Mapping[str, Any]) -> str:

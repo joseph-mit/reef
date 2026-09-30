@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 import urllib.request
@@ -79,6 +80,21 @@ class SearchHarness(Protocol):
     archive: Any
 
     def run_step(self, step: int) -> Sequence[Any]: ...
+
+
+class StepRecords(Protocol):
+    """Writes a step's attempts somewhere durable and returns summary numbers for its event."""
+
+    def record(
+        self,
+        step: int,
+        results: Sequence[Any],
+        selection: Sequence[Any],
+        archive: Any,
+        *,
+        best_before: float,
+        runtime_load_id: str | None,
+    ) -> Mapping[str, Any]: ...
 
 
 class TrainingStatusReader(Protocol):
@@ -278,6 +294,7 @@ class TTTDRunController:
         sleep: Callable[[float], None] = time.sleep,
         emit: Callable[[Mapping[str, Any]], None] | None = None,
         wait_for_training: bool = True,
+        step_records: StepRecords | None = None,
     ) -> None:
         if train_timeout_s <= 0 or poll_interval_s <= 0:
             raise ValueError("training timeout and poll interval must be positive")
@@ -289,6 +306,31 @@ class TTTDRunController:
         self.poll_interval_s = float(poll_interval_s)
         self._sleep = sleep
         self._emit = emit or (lambda _event: None)
+        self.step_records = step_records
+
+    def _best_reward(self) -> float:
+        return max((candidate.reward for candidate in self.harness.archive.candidates), default=-math.inf)
+
+    def _record_step(
+        self, step: int, results: Sequence[Any], best_before: float, runtime_load_id: str | None
+    ) -> dict[str, Any]:
+        """Write the step's attempts; a failure here is reported and never stops the run."""
+        if self.step_records is None:
+            return {}
+        try:
+            return dict(
+                self.step_records.record(
+                    step,
+                    results,
+                    getattr(self.harness, "last_selection", ()),
+                    self.harness.archive,
+                    best_before=best_before,
+                    runtime_load_id=runtime_load_id,
+                )
+            )
+        except Exception as exc:
+            self._emit({"event": "tttd_step_record_failed", "step": step, "error": f"{type(exc).__name__}: {exc}"})
+            return {}
 
     def run(self, total_steps: int) -> TTTDRunOutcome:
         if total_steps < 1:
@@ -317,19 +359,25 @@ class TTTDRunController:
                 previous_runtime_load_id = before.runtime_load_id
 
             self._emit({"event": "tttd_step_started", "step": step, "runtime_load_id": previous_runtime_load_id})
+            best_before = self._best_reward()
+            search_started = time.monotonic()
             results = tuple(self.harness.run_step(step))
+            search_seconds = time.monotonic() - search_started
             expected_rollouts = (
                 self.state_store.identity.groups_per_step * self.state_store.identity.rollouts_per_group
             )
             if len(results) != expected_rollouts:
                 raise RuntimeError(f"TTTD step {step} returned {len(results)} rollouts, expected {expected_rollouts}")
+            record_summary = self._record_step(step, results, best_before, previous_runtime_load_id)
             archive = self.harness.archive.state_dict()
             self.state_store.save_pending(
                 next_step=step + 1,
                 previous_runtime_load_id=previous_runtime_load_id,
                 archive=archive,
             )
+            wait_started = time.monotonic()
             committed = self._wait_for_step(step + 1, previous_runtime_load_id)
+            train_wait_seconds = time.monotonic() - wait_started
             self.state_store.save_committed(
                 next_step=step + 1,
                 runtime_load_id=committed.runtime_load_id,
@@ -347,6 +395,9 @@ class TTTDRunController:
                     "archive_size": len(candidates),
                     "archive_best_reward": max(candidate.reward for candidate in candidates),
                     **step_reward_summary(results),
+                    **record_summary,
+                    "search_seconds": search_seconds,
+                    "train_wait_seconds": train_wait_seconds,
                 }
             )
 
@@ -378,9 +429,13 @@ class TTTDRunController:
         all_results: list[Any] = []
         for step in range(next_step, total_steps):
             self._emit({"event": "tttd_step_started", "step": step, "runtime_load_id": FROZEN_POLICY})
+            best_before = self._best_reward()
+            search_started = time.monotonic()
             results = tuple(self.harness.run_step(step))
+            search_seconds = time.monotonic() - search_started
             if len(results) != expected_rollouts:
                 raise RuntimeError(f"TTTD step {step} returned {len(results)} rollouts, expected {expected_rollouts}")
+            record_summary = self._record_step(step, results, best_before, FROZEN_POLICY)
             self.state_store.save_committed(
                 next_step=step + 1,
                 runtime_load_id=FROZEN_POLICY,
@@ -397,6 +452,8 @@ class TTTDRunController:
                     "archive_size": len(candidates),
                     "archive_best_reward": max(candidate.reward for candidate in candidates),
                     **step_reward_summary(results),
+                    **record_summary,
+                    "search_seconds": search_seconds,
                 }
             )
         return TTTDRunOutcome(
@@ -510,6 +567,7 @@ __all__ = [
     "ReefTrainingStatusClient",
     "ScenarioTrainingFailure",
     "ScenarioTrainingStatus",
+    "StepRecords",
     "TTTDRunController",
     "TTTDRunIdentity",
     "TTTDRunOutcome",

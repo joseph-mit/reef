@@ -117,6 +117,24 @@ in_container() {
         "$REEF_SIF" bash -c "$prelude && $command"
 }
 
+# Append each GPU's temperature, clock, power, use and slowdown reasons to
+# the CSV file $1 every $2 seconds (default 60), in the background, so a slow
+# step can be matched to a hot GPU afterwards. The job's exit trap
+# (kill_job_processes) stops it. Slowdown reasons 0x20 and 0x40 are thermal.
+start_gpu_log() {
+    local file=$1 interval=${2:-60}
+    if ! command -v nvidia-smi > /dev/null; then
+        echo "nvidia-smi is not on the host; no GPU log" >&2
+        return 0
+    fi
+    echo "time,index,pci_bus_id,temperature_c,sm_clock_mhz,power_w,utilization_pct,memory_used_mib,slowdown_reasons" \
+        > "$file"
+    nvidia-smi --format=csv,noheader,nounits -l "$interval" \
+        --query-gpu=timestamp,index,pci.bus_id,temperature.gpu,clocks.sm,power.draw,utilization.gpu,memory.used,clocks_event_reasons.active \
+        >> "$file" 2> /dev/null &
+    echo "GPU readings every ${interval}s in $file"
+}
+
 # SIGKILL a process and everything below it, children first found, so none
 # is reparented out of reach.
 kill_tree() {

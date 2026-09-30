@@ -174,3 +174,38 @@ def test_ppo_steps_show_the_critic_loss_at_its_first_and_last_update(tmp_path: P
     output = capsys.readouterr().out
     assert "per-update critic metrics: train/critic-value_loss, train/step" in output
     assert "commit metrics: none" in output
+
+
+@pytest.mark.unit
+def test_harness_step_files_and_summaries_fill_the_search_cost_and_failure_tables(tmp_path: Path, capsys) -> None:
+    import gzip
+
+    state = _state(tmp_path, [])
+    events = (state / "events.jsonl").read_text().splitlines()
+    committed = json.loads(events[1])
+    committed.update(
+        beat_parent_fraction=0.25,
+        beat_best_count=3,
+        search_seconds=1800.0,
+        completion_tokens_mean=9000.0,
+        failures={"no code block": 4, "packing is not valid": 2},
+    )
+    (state / "events.jsonl").write_text(events[0] + "\n" + json.dumps(committed) + "\n")
+    (state / "agent-record" / "s.commits.jsonl").write_text(
+        json.dumps({"step": 1, "metrics": {"baseline_explained_variance": 0.4}}) + "\n"
+    )
+    (state / "attempts").mkdir()
+    with gzip.open(state / "attempts" / "step-0001.jsonl.gz", "wt") as handle:
+        handle.write(json.dumps({"step": 1}) + "\n")
+        for reward in (0.0, 2.0, 2.5, 0.0):
+            handle.write(json.dumps({"reward": reward}) + "\n")
+
+    run_report.main([str(state)])
+
+    output = capsys.readouterr().out
+    assert "| beat parent % | new bests |" in output and "| 25 | 3 |" in output
+    assert "search min" in output and "| 30.0 |" in output
+    assert "baseline EV" in output
+    assert "| no code block | packing is not valid |" in output and "| 1 | 4 | 2 |" in output
+    steps = (state / "report" / "steps.csv").read_text().splitlines()
+    assert steps[0].startswith("step,attempts,mean,fail %") and steps[1].startswith("1.0,4.0,1.125,50.0")

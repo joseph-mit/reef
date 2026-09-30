@@ -11,6 +11,7 @@ stays importable without the external ``harbor`` package (e.g. in tests).
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -73,16 +74,21 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         rollout_index: int,
     ) -> RolloutResult:
         release_headers = {} if self.release_id is None else {"x-reef-release-id": self.release_id}
+        started = time.monotonic()
         response, agent_record_id = self.client.inference_with_record(
             self.scenario,
             self.inference_path,
             self._request_payload(parent),
             extra_headers=release_headers,
         )
+        generation_seconds = time.monotonic() - started
 
         result = dataclasses.replace(
             self._evaluate_response(parent, response),
             agent_record_id=agent_record_id,
+            group=group_index,
+            rollout=rollout_index,
+            generation_seconds=generation_seconds,
         )
 
         metadata: dict[str, Any] = {
@@ -96,6 +102,11 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
             "parent_id": parent.candidate_id,
             "grandparent_id": parent.parent_id or "",
             "search_value": result.search_value,
+            # The parent as the model saw it, so an attempt can be judged
+            # against the state it tried to improve.
+            "parent_reward": parent.reward,
+            "parent_visits": parent.visits,
+            "parent_depth": self.archive.depth(parent.candidate_id),
         }
         if not self.train:
             metadata["training"] = {"eligible": False}
@@ -103,7 +114,8 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
             self.scenario,
             {
                 "score": result.reward,
-                "feedback": result.error,
+                # The judge rejects a program with a reason and no exception.
+                "feedback": result.error or (result.output if result.reward == self.invalid_reward else None),
                 "references": [agent_record_id],
                 "metadata": metadata,
             },

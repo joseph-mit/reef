@@ -131,6 +131,8 @@ def test_commit_event_reports_archive_progress(tmp_path) -> None:
 
     controller.run(1)
 
+    timings = {key: events[-1].pop(key) for key in ("search_seconds", "train_wait_seconds")}
+    assert all(seconds >= 0 for seconds in timings.values())
     assert events[-1] == {
         "event": "tttd_step_committed",
         "step": 0,

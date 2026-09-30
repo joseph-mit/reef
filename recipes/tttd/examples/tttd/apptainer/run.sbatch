@@ -57,4 +57,5 @@ fi
 echo "$TTTD_METHOD on $TTTD_TASK, steps ${TTTD_RUN_STEPS:-all}, state under $EXAMPLE_DIR/work"
 # The GPUs this job got: compute rate, peer access, topology, all-reduce bandwidth.
 in_container "python3 '$EXAMPLE_DIR/apptainer/gpu_check.py'" || echo "gpu_check failed; starting anyway" >&2
+start_gpu_log "$REEF_REPO/reef-run-${SLURM_JOB_ID:-$$}-gpus.csv"
 in_container "cd '$EXAMPLE_DIR' && bash run.sh"

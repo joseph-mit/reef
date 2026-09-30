@@ -293,3 +293,28 @@ def test_a_step_at_the_key_cap_keeps_what_it_adopted_and_updated() -> None:
     assert version == 2
     assert count == pytest.approx(rho * inherited + 1.0)
     assert mean == pytest.approx(0.9 + (1.0 / (rho * inherited + 1.0)) * (1.0 - 0.9))
+
+
+@pytest.mark.unit
+def test_step_metrics_say_where_baselines_came_from_and_how_well_they_fit() -> None:
+    tracker = ForgettingTracker()
+    tracker.observe(node_key("p"), [2.0], version=0)
+    tracker.observe(TASK_KEY, [1.0], version=0)
+    observations = [
+        Observation(node_key("p"), 2.0),  # own key
+        Observation(node_key("c"), 3.0, prior_key=node_key("p"), fallbacks=(node_key("p"), TASK_KEY)),  # prior
+        Observation(node_key("d"), 1.0, fallbacks=(TASK_KEY,)),  # task
+        Observation(node_key("e"), 0.0),  # cold: the step mean
+    ]
+
+    _, metrics = assign_advantages(tracker, observations, version=1, normalize=False)
+
+    assert metrics["baseline_from_own_fraction"] == 0.25
+    assert metrics["baseline_from_prior_fraction"] == 0.25
+    assert metrics["baseline_from_task_fraction"] == 0.25
+    # Baselines 2, 2, 1, 1.5 against rewards 2, 3, 1, 0.
+    residuals = [0.0, 1.0, 0.0, -1.5]
+    mean = sum(residuals) / 4
+    residual_var = sum((value - mean) ** 2 for value in residuals) / 4
+    assert metrics["baseline_explained_variance"] == pytest.approx(1 - residual_var / 1.25)
+    assert -1 <= metrics["baseline_reward_correlation"] <= 1
