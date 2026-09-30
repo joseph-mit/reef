@@ -81,19 +81,21 @@ if [ ! -f work/model/config.json ]; then
     huggingface-cli download Qwen/Qwen3-8B --local-dir work/model
 fi
 
-# Every start writes fresh logs. Reef appends each service's output to
-# stack/<service>.log and replays that whole file into reef.log, so without
-# this an earlier run's lines, errors included, reappear in this run's log.
+# Every start writes fresh logs. Each service appends its output to
+# stack/<service>/<service>.log across restarts, and a new orchestrator reads
+# that file from the start into stack/<service>.log and reef.log, so without
+# this every earlier run's lines, errors included, reappear in this run's log.
 archive="$TTTD_STATE_DIR/logs/$(date +%Y%m%d-%H%M%S)"
-for old in "$TTTD_STATE_DIR"/reef.log "$TTTD_STATE_DIR"/stack/*.log; do
+for old in "$TTTD_STATE_DIR"/reef.log "$TTTD_STATE_DIR"/stack/*.log "$TTTD_STATE_DIR"/stack/*/*.log; do
     if [ -f "$old" ]; then
-        mkdir -p "$archive/stack"
-        case "$old" in
-            */stack/*) mv "$old" "$archive/stack/" ;;
-            *) mv "$old" "$archive/" ;;
-        esac
+        relative=${old#"$TTTD_STATE_DIR"/}
+        mkdir -p "$archive/$(dirname "$relative")"
+        mv "$old" "$archive/$relative"
     fi
 done
+# The driver removes its readiness marker when it starts, but the stack's
+# readiness probe can run first and take an earlier run's marker as ready.
+rm -f "$TTTD_STATE_DIR"/stack/*/bridge.ready
 
 # Start the Reef training stack. The Harbor controller waits for the final
 # durable training commit before this script exits and stops the stack.

@@ -57,7 +57,7 @@ TTTD_RUNS="spottt:2 ppottt:4" TTTD_LOCAL_STATE=ppottt \
 
 ## Checking a run
 
-Each start of a stack moves the previous run's `reef.log` and service logs into `logs/<time>/` under the state directory: Reef appends every service's output to one file per service and replays it whole into `reef.log`, so otherwise an earlier run's errors reappear in the next run's log.
+Each start of a stack moves the previous run's `reef.log` and every service log, including each service's own `stack/<service>/<service>.log`, into `logs/<time>/` under the state directory: a service appends to its own log across restarts, and a new stack reads it from the start into `reef.log`, so otherwise an earlier run's errors reappear in the next run's log.
 
 `run.sbatch` starts with [`gpu_check.py`](gpu_check.py), which prints each GPU's bf16 matrix-multiply rate, which GPUs reach each other directly, the NVIDIA topology and the NCCL all-reduce bandwidth, the traffic tensor parallelism adds to every training layer. It also runs next to a live job (`srun --jobid=<job> --overlap`), where the rates are lower bounds.
 
