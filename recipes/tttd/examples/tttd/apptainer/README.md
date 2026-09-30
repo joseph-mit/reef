@@ -63,6 +63,8 @@ Each start of a stack moves the previous run's `reef.log` and every service log,
 
 `bash status.sh` shows everything about your running job from the login node: for each of its runs, the committed steps, the current step and how long it has run, how long since its log last moved (over half an hour of silence means stuck, not slow) and any failure lines. It reads runs kept on the node's local disk too.
 
+`run_report.py <state directory>` adds the per-step statistics that need every attempt's score (failure rate, mean of valid attempts, median, top-10% mean, the step's best) and lists what the run recorded. Each run saves every attempt it can still read to `report/attempts.csv` under the state directory, since Reef deletes consumed records after its retention period (the configs keep 90 days).
+
 `run_status.py <state directory>` prints one row per committed step: mean and best reward, step time, training throughput, allocator retries, the trainer-sampler log-prob gap before any update, and the sampled policy's KL to the base. It reads only files, so it runs on the login node while the job runs.
 
 ## Known limits

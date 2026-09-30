@@ -41,3 +41,11 @@ def test_every_config_keeps_only_the_latest_checkpoint(config: Path) -> None:
     settings = yaml.safe_load(config.read_text())
     assert settings["training"]["checkpoint_retention"]["max_count"] == 1
     assert "--reef-checkpoint-max-count=${training.checkpoint_retention.max_count}" in config.read_text()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("config", CONFIGS, ids=lambda path: path.name)
+def test_every_config_keeps_attempt_records_for_the_study(config: Path) -> None:
+    # Reef's default deletes an attempt's record 7 days after training
+    # consumed it; per-attempt scores and programs are needed for analysis.
+    assert yaml.safe_load(config.read_text())["reef"]["agent_record_retention_days"] >= 60

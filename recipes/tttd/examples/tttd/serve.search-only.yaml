@@ -32,6 +32,9 @@ reef:
   artifact_work_dir: ${TTTD_STATE_DIR}/artifact-work
   artifact_cache_dir: ${TTTD_STATE_DIR}/artifact-cache
   agent_record_dir: ${TTTD_STATE_DIR}/agent-record
+  # Keep every attempt's record (program, score, feedback) for the whole study,
+  # not Reef's default 7 days after training consumes it.
+  agent_record_retention_days: 90
 
 observability:
   wandb:
