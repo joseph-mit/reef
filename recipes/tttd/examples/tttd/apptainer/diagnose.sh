@@ -25,12 +25,15 @@ section() {
     tail -n +"${start:-1}" "$log" | grep -v '^ *[\^~]*$'
 }
 failure='traceback|cuda error|illegal memory|device-side assert|sigquit|out of memory|exited before ready|killed'
+# Lines that match those words but are not failures: config dumps and a
+# harmless import warning.
+benign='error_injection|server_args=|Global server args|package walk|may not be an issue'
 
 echo "== settings of this run"
 section | grep -o -E "train_env_vars[^}]*\}|mem_fraction_static=[0-9.]+|cuda_graph_max_bs=[0-9]+|max_running_requests=[0-9A-Za-z]+" | sort | uniq -c
 
 echo "== error lines (first 40)"
-section | grep -n -i -E "$failure|error|exception|assert" | grep -v "may not be an issue" | head -n 40 | cut -c1-300
+section | grep -n -i -E "$failure|error|exception|assert" | grep -v -i -E "$benign" | head -n 40 | cut -c1-300
 
 echo "== around the first failure"
 first=$(section | grep -n -i -E "$failure" | head -n 1 | cut -d: -f1)

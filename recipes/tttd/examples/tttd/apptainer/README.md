@@ -61,6 +61,8 @@ Each start of a stack moves the previous run's `reef.log` and service logs into 
 
 `run.sbatch` starts with [`gpu_check.py`](gpu_check.py), which prints each GPU's bf16 matrix-multiply rate, which GPUs reach each other directly, the NVIDIA topology and the NCCL all-reduce bandwidth, the traffic tensor parallelism adds to every training layer. It also runs next to a live job (`srun --jobid=<job> --overlap`), where the rates are lower bounds.
 
+`bash status.sh` shows everything about your running job from the login node: for each of its runs, the committed steps, the current step and how long it has run, how long since its log last moved (over half an hour of silence means stuck, not slow) and any failure lines. It reads runs kept on the node's local disk too.
+
 `run_status.py <state directory>` prints one row per committed step: mean and best reward, step time, training throughput, allocator retries, the trainer-sampler log-prob gap before any update, and the sampled policy's KL to the base. It reads only files, so it runs on the login node while the job runs.
 
 ## Known limits
