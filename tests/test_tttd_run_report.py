@@ -119,3 +119,41 @@ def test_without_records_the_step_falls_back_to_the_harness_summary(tmp_path: Pa
     state = _state(tmp_path, [])
     (row,) = run_report.step_table(state, {})
     assert row["mean"] == 9.9 and row["fail %"] == pytest.approx(90) and row["attempts"] is None
+
+
+@pytest.mark.unit
+def test_a_resumed_steps_repeated_slots_keep_the_first_report(tmp_path: Path, capsys) -> None:
+    # Slots 0-1 reported by an interrupted job (scores 0), then by the resumed one (2.0).
+    state = _state(tmp_path, [0.0, 0.0])
+    connection = sqlite3.connect(state / "agent-record" / "s.sqlite3")
+    for index in range(2):
+        payload = {"score": 2.0, "metadata": {"step": 0, "group": 0, "rollout": index}}
+        connection.execute(
+            "INSERT INTO agent_record VALUES (?, ?, 's', 'report', ?, 0, '[]', NULL, NULL, 0)",
+            (200 + index, f"late{index}", json.dumps(payload)),
+        )
+    connection.commit()
+    connection.close()
+
+    run_report.main([str(state)])
+
+    (row,) = run_report.step_table(state, run_report.load_saved_scores(state / "report" / "attempts.csv"))
+    assert row["attempts"] == 2 and row["mean"] == 0.0
+    assert "Reef trains on the first): 2" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_a_csv_saved_with_repeats_is_corrected_from_reefs_records(tmp_path: Path) -> None:
+    state = _state(tmp_path, [0.0, 1.0])
+    path = state / "report" / "attempts.csv"
+    path.parent.mkdir()
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=run_report.ATTEMPT_FIELDS)
+        writer.writeheader()
+        writer.writerow({"record_id": "late0", "step": 1, "group": 0, "rollout": 0, "score": 2.0})
+        writer.writerow({"record_id": "r0", "step": 1, "group": 0, "rollout": 0, "score": 0.0})
+
+    run_report.main([str(state)])
+
+    (row,) = run_report.step_table(state, run_report.load_saved_scores(path))
+    assert row["attempts"] == 2 and row["mean"] == 0.5

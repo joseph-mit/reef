@@ -64,12 +64,15 @@ def _metric(metrics: Mapping[str, Any], suffix: str) -> float | None:
 def read_attempts(state: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Every scored attempt Reef still holds, and counts of what it holds."""
     attempts: list[dict[str, Any]] = []
-    held = {"inference": 0, "report": 0, "compacted": 0, "oldest_compacted": None}
+    held = {"inference": 0, "report": 0, "compacted": 0, "oldest_compacted": None, "repeats": 0}
+    # Reef trains on the first report at each (step, group, rollout) slot and
+    # rejects later ones, which an interrupted and resumed step produces.
+    slots: set[tuple[Any, Any, Any]] = set()
     for database in sorted((state / "agent-record").glob("*.sqlite3")):
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
         try:
             rows = connection.execute(
-                "SELECT agent_record_id, request_type, payload_json, compacted_at FROM agent_record"
+                "SELECT agent_record_id, request_type, payload_json, compacted_at FROM agent_record ORDER BY sequence"
             ).fetchall()
         finally:
             connection.close()
@@ -87,6 +90,11 @@ def read_attempts(state: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             step = metadata.get("step")
             if score is None or not isinstance(step, int):
                 continue
+            slot = (step, metadata.get("group"), metadata.get("rollout"))
+            if slot in slots:
+                held["repeats"] += 1
+                continue
+            slots.add(slot)
             attempts.append(
                 {
                     "record_id": record_id,
@@ -102,14 +110,24 @@ def read_attempts(state: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     return attempts, held
 
 
+def _slot(row: Mapping[str, Any]) -> tuple[str, str, str]:
+    return (str(row["step"]), str(row["group"]), str(row["rollout"]))
+
+
 def save_attempts(path: Path, attempts: Iterable[Mapping[str, Any]]) -> int:
-    """Merge attempts into the CSV by record id; return how many rows it holds."""
-    rows: dict[str, dict[str, Any]] = {}
+    """Merge attempts into the CSV, one row per slot; return how many rows it holds.
+
+    Attempts read from Reef replace saved rows at the same slot, so a CSV
+    written before repeats were left out is corrected while Reef still holds
+    the records.
+    """
+    rows: dict[tuple[str, str, str], dict[str, Any]] = {}
     if path.is_file():
         with path.open(newline="") as handle:
-            rows = {row["record_id"]: row for row in csv.DictReader(handle)}
+            for row in csv.DictReader(handle):
+                rows.setdefault(_slot(row), row)
     for attempt in attempts:
-        rows[str(attempt["record_id"])] = {field: attempt.get(field) for field in ATTEMPT_FIELDS}
+        rows[_slot(attempt)] = {field: attempt.get(field) for field in ATTEMPT_FIELDS}
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     with temporary.open("w", newline="") as handle:
@@ -214,6 +232,8 @@ def inventory(state: Path, held: Mapping[str, Any], saved: int) -> str:
         f"per-update training metrics: {', '.join(sorted(step_keys)) or 'none'}",
         f"records Reef holds: {held.get('report', 0)} scored attempts, {held.get('inference', 0)} generations, "
         f"{held.get('compacted', 0)} already consumed by training",
+        f"repeated attempts left out (a resumed step's later report at a slot Reef had already filled;"
+        f" Reef trains on the first): {held.get('repeats', 0)}",
         f"attempts saved in report/attempts.csv: {saved}",
     ]
     oldest = held.get("oldest_compacted")
