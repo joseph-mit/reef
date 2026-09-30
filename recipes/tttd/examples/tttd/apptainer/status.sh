@@ -34,7 +34,10 @@ if [ "${1:-}" = --on-node ]; then
         shown=$state
         [[ "$state" == "$HOME"/* ]] && shown="~${state#"$HOME"}"
         echo "######## $shown"
-        python3 "$here/run_status.py" "$state" | tail -n 7
+        table=$(python3 "$here/run_status.py" "$state")
+        # The header and the last ten steps.
+        head -n 2 <<< "$table"
+        tail -n +3 <<< "$table" | tail -n 10
         last=$(grep '"tttd_step_' "$state/events.jsonl" | tail -n 1)
         started=$(grep -o '"time": [0-9.]*' <<< "$last" | grep -o '[0-9]*' | head -n 1)
         if [[ "$last" == *tttd_step_started* ]] && [ -n "$started" ]; then

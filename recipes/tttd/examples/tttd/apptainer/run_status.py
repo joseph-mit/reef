@@ -44,14 +44,34 @@ def _number(value: Any) -> float | None:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
+def _first(*values: float | None) -> float | None:
+    return next((value for value in values if value is not None), None)
+
+
 def step_rows(state: Path) -> list[dict[str, float | None]]:
     """Committed steps, 1-based, joining the harness's events with Reef's commits."""
     best: dict[int, float] = {}
+    # The harness's own record of each step, for when Reef's commit has no
+    # rollout metrics (PPO-TTT's critic-only steps do not report them).
+    event_mean: dict[int, float] = {}
+    event_minutes: dict[int, float] = {}
+    started: dict[int, float] = {}
     events = state / "events.jsonl"
     if events.is_file():
         for event in _jsonl([events]):
+            step = event.get("step")
+            if not isinstance(step, int):
+                continue
+            if event.get("event") == "tttd_step_started" and _number(event.get("time")) is not None:
+                started[step + 1] = float(event["time"])
             if event.get("event") == "tttd_step_committed":
-                best[int(event["step"]) + 1] = float(event["archive_best_reward"])
+                best[step + 1] = float(event["archive_best_reward"])
+                mean = _number(event.get("reward_mean"))
+                if mean is not None:
+                    event_mean[step + 1] = mean
+                finished = _number(event.get("time"))
+                if finished is not None and step + 1 in started:
+                    event_minutes[step + 1] = (finished - started[step + 1]) / 60
     commits: dict[int, Mapping[str, Any]] = {}
     for record in _jsonl(sorted((state / "agent-record").glob("*.commits.jsonl"))):
         if isinstance(record.get("step"), int) and record.get("operation", "training") == "training":
@@ -64,9 +84,9 @@ def step_rows(state: Path) -> list[dict[str, float | None]]:
         rows.append(
             {
                 "step": float(step),
-                "mean": _number(metrics.get("rollout/rewards")),
+                "mean": _first(_number(metrics.get("rollout/rewards")), event_mean.get(step)),
                 "best": best.get(step),
-                "step min": None if seconds is None else seconds / 60,
+                "step min": _first(None if seconds is None else seconds / 60, event_minutes.get(step)),
                 "tok/s": _number(metrics.get("perf/actor_train_tok_per_s")),
                 "retries": _number(metrics.get("memory/alloc_retries")),
                 "mismatch": _number(steps[0].get("train/ppo_kl")),

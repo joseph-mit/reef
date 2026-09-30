@@ -62,3 +62,27 @@ def test_rows_join_events_and_commits(tmp_path, capsys) -> None:
 def test_empty_state_says_so(tmp_path, capsys) -> None:
     assert run_status.main([str(tmp_path)]) == 1
     assert "no committed steps" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+def test_rows_fall_back_to_the_harness_events_without_commit_metrics(tmp_path) -> None:
+    _write(
+        tmp_path / "events.jsonl",
+        [
+            {"event": "tttd_step_started", "step": 0, "time": 1000.0},
+            {
+                "event": "tttd_step_committed",
+                "step": 0,
+                "archive_best_reward": 2.6,
+                "reward_mean": 0.4,
+                "time": 8200.0,
+            },
+        ],
+    )
+    _write(tmp_path / "agent-record" / "s.commits.jsonl", [{"step": 1, "metrics": {}}])
+
+    (row,) = run_status.step_rows(tmp_path)
+
+    assert row["mean"] == 0.4
+    assert row["step min"] == 120.0
+    assert row["best"] == 2.6
