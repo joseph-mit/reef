@@ -17,7 +17,11 @@ from typing import Any
 
 from reef_client import ReefClient
 
-from .search import Candidate, RolloutResult, Scorer, _TTTDiscoverHarnessBase
+from .search import Candidate, RolloutResult, Scorer, _TTTDiscoverHarnessBase, solution_key
+from .siblings import SiblingSettings
+
+# Report tags of methods whose advantage compares a parent's sibling group.
+GROUP_ALGORITHMS = ("ttt-discover", "tttd")
 
 
 class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
@@ -41,7 +45,13 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
         algorithm: str = "ttt-discover",
         train: bool = True,
+        siblings: SiblingSettings | None = None,
     ) -> None:
+        if siblings is not None and siblings.adaptive and algorithm in GROUP_ALGORITHMS:
+            raise ValueError(
+                "adaptive siblings give parents different numbers of attempts; "
+                f"{algorithm!r} compares each parent's fixed sibling group"
+            )
         super().__init__(
             scorer,
             instruction,
@@ -52,6 +62,7 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
             invalid_reward=invalid_reward,
             max_workers=max_workers,
             request_builder=request_builder,
+            siblings=siblings,
         )
         self.client = client
         self.scenario = scenario
@@ -107,6 +118,10 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
             "parent_reward": parent.reward,
             "parent_visits": parent.visits,
             "parent_depth": self.archive.depth(parent.candidate_id),
+            # Programs by content, so a later attempt can be traced to the
+            # attempt whose program its parent state is (stepping-stone credit).
+            "solution_sha1": solution_key(result.solution),
+            "parent_solution_sha1": solution_key(parent.solution),
         }
         if not self.train:
             metadata["training"] = {"eligible": False}

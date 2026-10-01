@@ -15,6 +15,12 @@ A recipe is picked along two axes: **what it evolves**, and **how it learns**.
 |                         |                                                  |                                          |
 |                         |                                                  | ``spottt``: the same search, with a      |
 |                         |                                                  | baseline from past outcomes              |
+|                         |                                                  |                                          |
+|                         |                                                  | ``espottt``: TTT-Discover's entropic     |
+|                         |                                                  | advantage against past outcomes          |
+|                         |                                                  |                                          |
+|                         |                                                  | ``hspottt``: SPO-TTT plus credit for     |
+|                         |                                                  | attempts that later led to a success     |
 +-------------------------+--------------------------------------------------+------------------------------------------+
 | **Harness:** prompts,   | ``skillclaw``: grows a skill pool from           | not available                            |
 | rules, skills, config,  | the failures in its own served traffic           |                                          |
@@ -39,6 +45,12 @@ Pick by the signal your workload can produce.
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+
 | Scored attempts at one problem, with neither  | `spottt <recipes/spottt.rst>`__                 | model weights | yes        |
 | siblings nor a critic                         |                                                 |               |            |
++-----------------------------------------------+-------------------------------------------------+---------------+------------+
+| Scored attempts at one problem, judged like   | `espottt <recipes/espottt.rst>`__               | model weights | yes        |
+| TTT-Discover but against past outcomes        |                                                 |               |            |
++-----------------------------------------------+-------------------------------------------------+---------------+------------+
+| Scored attempts at one problem, crediting     | `hspottt <recipes/hspottt.rst>`__               | model weights | yes        |
+| attempts whose descendants succeed            |                                                 |               |            |
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+
 | Agent conversations without reports           | `openclawrl <recipes/openclawrl.rst>`__         | model weights | yes        |
 +-----------------------------------------------+-------------------------------------------------+---------------+------------+

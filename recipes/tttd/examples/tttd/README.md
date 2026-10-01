@@ -26,10 +26,14 @@ harness/              agent harness (PUCT search + Reef adapter)
   run_controller.py     training barrier + paired PUCT resume state
   harbor_agent.py       Harbor BaseAgent (imports harbor package)
   methods.py            the training methods TTTD_METHOD selects, and their state paths
+  siblings.py           how many attempts each parent gets (fixed grid or adaptive)
+  step_records.py       every attempt of a step, written to attempts/step-NNNN.jsonl.gz
   session.py            the harness and run controller both entry points build
 serve.yaml            Reef + Ray + Slime/Megatron + SGLang stack config
 serve.ppottt*.yaml    the same stack trained with PPO and a critic (recipes/ppottt)
 serve.spottt*.yaml    ... with a baseline from past outcomes (recipes/spottt)
+serve.espottt*.yaml   ... with TTT-Discover's entropic advantage over past outcomes (recipes/espottt)
+serve.hspottt*.yaml   ... SPO-TTT plus credit for attempts that later led to a success (recipes/hspottt)
 serve.tttd-mean.yaml  ... with a group-mean baseline, the control for both
 serve.search-only.yaml  the search on frozen weights, the floor of a comparison
 run.py                one reef-eval episode owning the complete TTT trajectory
@@ -227,6 +231,13 @@ harness, tasks and verifiers drive other recipes. `TTTD_METHOD` picks one:
 | `ppottt-smoke` | `serve.ppottt-smoke.yaml` | two 2x2 PPO-TTT steps with thinking off | 4 |
 | `spottt` | `serve.spottt.yaml` | [SPO-TTT](../../../spottt/README.md): baseline from past outcomes, no critic | 2 |
 | `spottt-smoke` | `serve.spottt-smoke.yaml` | two 2x2 SPO-TTT steps with thinking off | 2 |
+| `spottt-adaptive` | `serve.spottt-adaptive.yaml` | SPO-TTT with adaptive siblings (below) | 2 |
+| `espottt` | `serve.espottt.yaml` | [Entropic SPO-TTT](../../../espottt/README.md): TTT-Discover's entropic advantage against past outcomes | 2 |
+| `espottt-smoke` | `serve.espottt-smoke.yaml` | two 2x2 entropic SPO-TTT steps with thinking off | 2 |
+| `espottt-adaptive` | `serve.espottt-adaptive.yaml` | entropic SPO-TTT with adaptive siblings | 2 |
+| `espottt-adaptive-smoke` | `serve.espottt-adaptive-smoke.yaml` | two 2x2 steps of the above with thinking off | 2 |
+| `hspottt` | `serve.hspottt.yaml` | [Stepping-stone SPO-TTT](../../../hspottt/README.md): SPO-TTT plus credit for attempts whose descendants succeed | 2 |
+| `hspottt-smoke` | `serve.hspottt-smoke.yaml` | two 2x2 steps of the above with a one-step window | 2 |
 | `search-only` | `serve.search-only.yaml` | the same search on frozen weights: reports are not trained on | 2 |
 
 ```bash
@@ -240,6 +251,37 @@ one verifier budget: `search-only` is the floor PUCT reaches without learning,
 replace `tttd-mean`'s sibling group with a critic or with past outcomes.
 `serve.yaml` ships TTT-Discover's one-step default; set `training.steps: 50`
 there to match the other configs, which ship the paper's 50 steps.
+`espottt` keeps TTT-Discover's advantage and loss but compares each attempt
+with past outcomes from the same state instead of its siblings; its
+`baseline: siblings` setting is TTT-Discover's advantage exactly, the control.
+`hspottt` trains each step as `spottt` does and also replays, a few steps
+later, the attempts that a later success grew from; to trace that, the harness
+reports every attempt's program key and its parent state's.
+
+The three changes are separate switches, so each can be measured on its own
+against its base: `espottt` against `tttd` (where the comparison set comes
+from), `hspottt` against `spottt` (stepping-stone credit), and adaptive
+siblings against the same method on the fixed grid (`spottt-adaptive` against
+`spottt`, `espottt-adaptive` against `espottt`). Adaptive siblings combine
+with any method that does not compare a fixed sibling group; add a
+`search.siblings` block to a config to combine them with `hspottt`.
+
+### Adaptive siblings
+
+TTT-Discover's 64 attempts per parent both try to improve on it and measure
+what is normal from it. A method that learns what is normal from history needs
+the second job only where history is thin. A config's `search.siblings` block
+(read by the harness, not by Reef) with `policy: adaptive` spends the same
+512 attempts accordingly: each parent, in PUCT's order, gets what brings the
+outcomes known from it up to `target`, between `min_siblings` and
+`max_siblings`, until the budget is spent, so more parents are tried per step.
+A parent never expanded starts from `inherit_fraction` of what is known about
+its own parent, as the Reef-side histories do; known outcomes fade with
+`half_life` committed steps; and a parent whose new scores sit `surprise_z`
+standard errors from what was known is measured again. Each attempt keeps an
+address in the 8x64 grid, which then no longer means one parent, so
+TTT-Discover's grouped methods refuse it. Absent the block, or with `policy:
+fixed`, the search is TTT-Discover's grid.
 
 Every method other than `tttd` keeps its state under `work/<method>/<task>/`
 and its scenario as `<method>-<task>`, so runs of different methods never share

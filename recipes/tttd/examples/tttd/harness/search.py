@@ -14,6 +14,7 @@ The instruction shown to the model comes from the Harbor task's
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import time
@@ -21,6 +22,8 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from typing import Any
+
+from .siblings import AttemptStats, SiblingSettings, allocate_siblings
 
 Scorer = Callable[[str], "ScoredSolution"]
 
@@ -87,6 +90,7 @@ class SelectedParent:
     seed: bool
     puct_score: float
     value_rank: int
+    attempts: int = 0
 
 
 class PUCTArchive:
@@ -103,6 +107,8 @@ class PUCTArchive:
         self.total_expansions = 0
         self._next_id = 0
         self._items: dict[str, Candidate] = {}
+        # What is known about each parent's attempts; only adaptive siblings read it.
+        self.attempt_stats = AttemptStats()
 
     @property
     def candidates(self) -> tuple[Candidate, ...]:
@@ -215,8 +221,11 @@ class PUCTArchive:
             current = self._items[current.parent_id]
         return depth
 
-    def describe_selection(self, selected: Sequence[Candidate]) -> tuple[SelectedParent, ...]:
+    def describe_selection(
+        self, selected: Sequence[Candidate], attempts: Sequence[int] = ()
+    ) -> tuple[SelectedParent, ...]:
         scores = self.scores()
+        counts = list(attempts) or [0] * len(selected)
         ranked = sorted(self._items.values(), key=lambda item: -item.value)
         ranks = {item.candidate_id: rank for rank, item in enumerate(ranked)}
         return tuple(
@@ -229,8 +238,9 @@ class PUCTArchive:
                 seed=parent.seed,
                 puct_score=scores.get(parent.candidate_id, math.nan),
                 value_rank=ranks.get(parent.candidate_id, -1),
+                attempts=count,
             )
-            for parent in selected
+            for parent, count in zip(selected, counts, strict=True)
         )
 
     def best(self) -> Candidate:
@@ -261,6 +271,7 @@ class PUCTArchive:
                 }
                 for candidate in self._items.values()
             ],
+            "attempt_stats": self.attempt_stats.state_dict(keep=self._items),
         }
 
     def load_state_dict(self, snapshot: Mapping[str, Any]) -> None:
@@ -285,6 +296,11 @@ class PUCTArchive:
             or isinstance(rows, (str, bytes))
         ):
             raise ValueError("invalid PUCT archive snapshot metadata")
+        try:
+            # Snapshots written before attempt statistics existed have none.
+            attempt_stats = AttemptStats(snapshot.get("attempt_stats"))
+        except (TypeError, ValueError, IndexError) as exc:
+            raise ValueError("invalid PUCT archive attempt statistics") from exc
 
         restored: dict[str, Candidate] = {}
         for row in rows:
@@ -354,6 +370,7 @@ class PUCTArchive:
         self.total_expansions = total_expansions
         self._next_id = next_id
         self._items = restored
+        self.attempt_stats = attempt_stats
 
     def _new_candidate(
         self,
@@ -425,6 +442,16 @@ class PUCTArchive:
             item.children.difference_update(remove)
 
 
+def solution_key(solution: str) -> str:
+    """A short, stable name for a program: the first 16 hex digits of its SHA-1; "" for no program.
+
+    The archive keeps one candidate per distinct program, so the key links an
+    attempt to the archive state it became and to the attempts later expanded
+    from that state (they report it as their parent's key).
+    """
+    return hashlib.sha1(solution.encode("utf-8")).hexdigest()[:16] if solution else ""
+
+
 # ---------------------------------------------------------------------------
 # Generic prompt construction
 # ---------------------------------------------------------------------------
@@ -484,6 +511,7 @@ class _TTTDiscoverHarnessBase:
         request_extra: Mapping[str, Any] | None = None,
         action_from_response: Callable[[Mapping[str, Any]], str] | None = None,
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
+        siblings: SiblingSettings | None = None,
     ) -> None:
         # Group-relative recipes need siblings and enforce that on the Reef
         # side; the search itself runs with any number of attempts per parent.
@@ -499,29 +527,44 @@ class _TTTDiscoverHarnessBase:
         self.request_extra = dict(request_extra or {})
         self.action_from_response = action_from_response or openai_action
         self.request_builder = request_builder
+        self.siblings = siblings or SiblingSettings()
         self.archive = PUCTArchive(exploration=exploration)
         for _ in range(groups_per_step):
             self.archive.add_seed("", 0.0, 0.0)
         # The parents of the last step, as PUCT saw them when it chose them.
         self.last_selection: tuple[SelectedParent, ...] = ()
 
-    def run_step(self, step: int) -> tuple[RolloutResult, ...]:
-        parents = self.archive.select(self.groups_per_step)
-        if len(parents) != self.groups_per_step:
-            raise RuntimeError(
-                f"PUCT could select only {len(parents)} independent lineages for {self.groups_per_step} groups"
-            )
-        self.last_selection = self.archive.describe_selection(parents)
-        tasks = [
-            (
-                parent,
-                f"tttd-step-{step}-group-{group_index}",
-                group_index,
-                rollout_index,
-            )
-            for group_index, parent in enumerate(parents)
-            for rollout_index in range(self.rollouts_per_group)
+    def _plan_step(self, step: int) -> tuple[tuple[Candidate, ...], list[int]]:
+        """The step's parents in PUCT order and how many attempts each gets."""
+        if not self.siblings.adaptive:
+            parents = self.archive.select(self.groups_per_step)
+            if len(parents) != self.groups_per_step:
+                raise RuntimeError(
+                    f"PUCT could select only {len(parents)} independent lineages for {self.groups_per_step} groups"
+                )
+            return parents, [self.rollouts_per_group] * len(parents)
+        budget = self.groups_per_step * self.rollouts_per_group
+        wanted = max(1, min(self.siblings.max_parents, budget // self.siblings.min_siblings))
+        candidates = self.archive.select(wanted)
+        known = [
+            self.archive.attempt_stats.known(parent.candidate_id, step, self.siblings, parent.parent_id)
+            for parent in candidates
         ]
+        allocations = allocate_siblings(known, budget, self.siblings)
+        return candidates[: len(allocations)], allocations
+
+    def run_step(self, step: int) -> tuple[RolloutResult, ...]:
+        parents, allocations = self._plan_step(step)
+        self.last_selection = self.archive.describe_selection(parents, allocations)
+        # Every attempt keeps an address in the step's grid; under adaptive
+        # siblings a grid row no longer means one parent.
+        tasks = []
+        slot = 0
+        for parent, count in zip(parents, allocations, strict=True):
+            for _ in range(count):
+                group_index, rollout_index = divmod(slot, self.rollouts_per_group)
+                tasks.append((parent, f"tttd-step-{step}-group-{group_index}", group_index, rollout_index))
+                slot += 1
         with ThreadPoolExecutor(max_workers=min(self.max_workers, len(tasks))) as pool:
             futures = [
                 pool.submit(
@@ -536,9 +579,13 @@ class _TTTDiscoverHarnessBase:
             ]
             all_results = tuple(future.result() for future in futures)
 
-        for group_index, parent in enumerate(parents):
-            start = group_index * self.rollouts_per_group
-            results = all_results[start : start + self.rollouts_per_group]
+        start = 0
+        for parent, count in zip(parents, allocations, strict=True):
+            results = all_results[start : start + count]
+            start += count
+            self.archive.attempt_stats.record(
+                parent.candidate_id, [result.reward for result in results], step, self.siblings
+            )
             valid = [
                 (result.solution, result.reward, result.search_value)
                 for result in results
@@ -638,6 +685,7 @@ class TTTDiscoverHarness(_TTTDiscoverHarnessBase):
         request_extra: Mapping[str, Any] | None = None,
         action_from_response: Callable[[Mapping[str, Any]], str] | None = None,
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
+        siblings: SiblingSettings | None = None,
     ) -> None:
         super().__init__(
             scorer,
@@ -651,6 +699,7 @@ class TTTDiscoverHarness(_TTTDiscoverHarnessBase):
             request_extra=request_extra,
             action_from_response=action_from_response,
             request_builder=request_builder,
+            siblings=siblings,
         )
         self.generate = generate
 

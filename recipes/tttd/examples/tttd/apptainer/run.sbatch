@@ -29,7 +29,7 @@ set -euo pipefail
 source "${REEF_REPO:-${SLURM_SUBMIT_DIR:-$PWD}}/recipes/tttd/examples/tttd/apptainer/common.sh"
 
 if [ -z "${TTTD_METHOD:-}" ]; then
-    echo "set TTTD_METHOD (tttd, tttd-mean, ppottt, spottt or search-only)" >&2
+    echo "set TTTD_METHOD (tttd, tttd-mean, ppottt, spottt, espottt, hspottt, the -adaptive variants, or search-only)" >&2
     exit 1
 fi
 export TTTD_TASK=${TTTD_TASK:-erdos_min_overlap}

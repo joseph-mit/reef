@@ -370,6 +370,13 @@ def test_user_facing_example_deployments_are_discovered() -> None:
         "recipes/tttd/examples/tttd/serve.tttd-mean.yaml",
         "recipes/tttd/examples/tttd/serve.spottt.yaml",
         "recipes/tttd/examples/tttd/serve.spottt-smoke.yaml",
+        "recipes/tttd/examples/tttd/serve.spottt-adaptive.yaml",
+        "recipes/tttd/examples/tttd/serve.espottt.yaml",
+        "recipes/tttd/examples/tttd/serve.espottt-smoke.yaml",
+        "recipes/tttd/examples/tttd/serve.espottt-adaptive.yaml",
+        "recipes/tttd/examples/tttd/serve.espottt-adaptive-smoke.yaml",
+        "recipes/tttd/examples/tttd/serve.hspottt.yaml",
+        "recipes/tttd/examples/tttd/serve.hspottt-smoke.yaml",
         "recipes/tttd/examples/tttd/serve.search-only.yaml",
     }
 

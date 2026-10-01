@@ -59,6 +59,19 @@ class TTTDRunIdentity:
     enable_thinking: bool
     exploration: float
     invalid_reward: float
+    # How a step's attempts are spread over parents, when not TTT-Discover's
+    # fixed grid (harness/siblings.py); None keeps the identity of runs
+    # started before adaptive siblings existed.
+    siblings: tuple[tuple[str, Any], ...] | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        """The identity a state file records; ``siblings`` appears only when set."""
+        identity = asdict(self)
+        if self.siblings is None:
+            identity.pop("siblings")
+        else:
+            identity["siblings"] = dict(self.siblings)
+        return identity
 
 
 @dataclass(frozen=True)
@@ -201,9 +214,9 @@ class TTTDRunStateStore:
             raise TTTDRunStateError(f"cannot read TTTD state {self.path}: {exc}") from exc
         if not isinstance(payload, dict) or payload.get("format_version") != STATE_FORMAT_VERSION:
             raise TTTDRunStateError(f"unsupported TTTD state format in {self.path}")
-        if payload.get("identity") != asdict(self.identity):
+        if payload.get("identity") != self.identity.as_dict():
             raise TTTDRunStateError(
-                f"TTTD state identity does not match this run: {payload.get('identity')!r} != {asdict(self.identity)!r}"
+                f"TTTD state identity does not match this run: {payload.get('identity')!r} != {self.identity.as_dict()!r}"
             )
         phase = payload.get("phase")
         next_step = payload.get("next_step")
@@ -225,7 +238,7 @@ class TTTDRunStateStore:
         self._write(
             {
                 "format_version": STATE_FORMAT_VERSION,
-                "identity": asdict(self.identity),
+                "identity": self.identity.as_dict(),
                 "phase": "pending",
                 "next_step": next_step,
                 "previous_runtime_load_id": previous_runtime_load_id,
@@ -245,7 +258,7 @@ class TTTDRunStateStore:
         self._write(
             {
                 "format_version": STATE_FORMAT_VERSION,
-                "identity": asdict(self.identity),
+                "identity": self.identity.as_dict(),
                 "phase": "committed",
                 "next_step": next_step,
                 "runtime_load_id": runtime_load_id,

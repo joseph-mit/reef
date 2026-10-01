@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,7 @@ from .agent import ReefTTTDiscoverHarness
 from .methods import Method
 from .run_controller import ReefTrainingStatusClient, TTTDRunController, TTTDRunIdentity, TTTDRunStateStore
 from .search import Scorer, TTTDChatRequestBuilder
+from .siblings import SiblingSettings
 from .step_records import StepRecorder
 
 # The Reef run.sh started; TTTD_REEF_PORT moves it when two stacks share a machine.
@@ -54,6 +55,8 @@ class StackSettings:
     steps: int
     max_new_tokens: int
     enable_thinking: bool
+    # How a step's attempts are spread over parents (the config's search.siblings).
+    siblings: SiblingSettings = field(default_factory=SiblingSettings)
 
     @classmethod
     def load(cls, path: Path) -> StackSettings:
@@ -66,6 +69,7 @@ class StackSettings:
             max_new_tokens=int(training["max_new_tokens"]),
             # A reduced smoke turns thinking off so a short completion still reaches code.
             enable_thinking=bool(training.get("enable_thinking", True)),
+            siblings=SiblingSettings.from_mapping((stack.get("search") or {}).get("siblings")),
         )
 
 
@@ -110,6 +114,7 @@ def build_run(
             top_k=TOP_K,
             enable_thinking=settings.enable_thinking,
         ),
+        siblings=settings.siblings,
     )
     identity = TTTDRunIdentity(
         scenario=scenario,
@@ -126,6 +131,7 @@ def build_run(
         enable_thinking=settings.enable_thinking,
         exploration=EXPLORATION,
         invalid_reward=INVALID_REWARD,
+        siblings=settings.siblings.identity(),
     )
     controller = TTTDRunController(
         harness,

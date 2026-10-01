@@ -345,7 +345,23 @@ def test_entrypoints_derive_the_same_state_root_as_the_harness(monkeypatch, tmp_
 
 
 @pytest.mark.parametrize(
-    "method_name", ["tttd", "tttd-mean", "ppottt", "ppottt-smoke", "spottt", "spottt-smoke", "search-only"]
+    "method_name",
+    [
+        "tttd",
+        "tttd-mean",
+        "ppottt",
+        "ppottt-smoke",
+        "spottt",
+        "spottt-smoke",
+        "spottt-adaptive",
+        "espottt",
+        "espottt-smoke",
+        "espottt-adaptive",
+        "espottt-adaptive-smoke",
+        "hspottt",
+        "hspottt-smoke",
+        "search-only",
+    ],
 )
 def test_every_method_config_exists_and_its_grid_matches_the_driver_batch(method_name):
     import yaml

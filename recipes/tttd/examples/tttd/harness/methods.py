@@ -35,6 +35,13 @@ METHODS: dict[str, Method] = {
         Method("ppottt-smoke", "serve.ppottt-smoke.yaml", "ppottt"),
         Method("spottt", "serve.spottt.yaml", "spottt"),
         Method("spottt-smoke", "serve.spottt-smoke.yaml", "spottt"),
+        Method("spottt-adaptive", "serve.spottt-adaptive.yaml", "spottt"),
+        Method("espottt", "serve.espottt.yaml", "espottt"),
+        Method("espottt-smoke", "serve.espottt-smoke.yaml", "espottt"),
+        Method("espottt-adaptive", "serve.espottt-adaptive.yaml", "espottt"),
+        Method("espottt-adaptive-smoke", "serve.espottt-adaptive-smoke.yaml", "espottt"),
+        Method("hspottt", "serve.hspottt.yaml", "hspottt"),
+        Method("hspottt-smoke", "serve.hspottt-smoke.yaml", "hspottt"),
         Method("search-only", "serve.search-only.yaml", "ttt-discover", train=False),
     )
 }

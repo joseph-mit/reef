@@ -85,11 +85,11 @@ count = torch.cuda.device_count()
 assert count >= 1, 'no GPU visible inside the container'
 x = torch.randn(1024, 1024, device='cuda')
 print(f'  torch {torch.__version__}, {count} GPU(s): {torch.cuda.get_device_name(0)}, matmul ok: {bool((x @ x).isfinite().all())}')
-import reef, reef_client, recipes.ppottt, recipes.spottt, recipes.tttd
+import reef, reef_client, recipes.ppottt, recipes.spottt, recipes.espottt, recipes.hspottt, recipes.tttd
 from reef.train.slime_backend.loss_families import resolve_loss_family
 for family in ('ppottt', 'spottt', 'tttd'):
     resolve_loss_family(family)
-print('  reef, reef_client and the ppottt, spottt and tttd recipes import')
+print('  reef, reef_client and the ppottt, spottt, espottt, hspottt and tttd recipes import')
 from importlib.metadata import entry_points
 plugins = {entry.name: entry.value for entry in entry_points(group='sglang.srt.plugins')}
 assert 'reef' in plugins, f'SGLang cannot find Reef plugin; registered: {plugins}'

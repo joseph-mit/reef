@@ -13,7 +13,6 @@ The same pass returns summary numbers that go into the step's
 from __future__ import annotations
 
 import gzip
-import hashlib
 import json
 import math
 import os
@@ -25,7 +24,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from .search import PUCTArchive, RolloutResult, SelectedParent
+from .search import PUCTArchive, RolloutResult, SelectedParent, solution_key
 
 OUTPUT_CHARS = 1_000
 _NUMBER = re.compile(r"\d+(\.\d+)?")
@@ -47,10 +46,6 @@ def _think_split(action: str) -> tuple[int, int]:
     """Characters of reasoning and of answer in a response with a closing think tag."""
     head, tag, tail = action.partition("</think>")
     return (len(head), len(tail)) if tag else (0, len(action))
-
-
-def _solution_hash(solution: str) -> str:
-    return hashlib.sha1(solution.encode("utf-8")).hexdigest()[:16] if solution else ""
 
 
 def _mean(values: Sequence[float]) -> float | None:
@@ -88,7 +83,7 @@ def attempt_record(
         "beat_best": result.reward > best_before,
         "error": result.error,
         "output": (result.output or "")[-OUTPUT_CHARS:],
-        "solution_sha1": _solution_hash(result.solution),
+        "solution_sha1": solution_key(result.solution),
         "solution": result.solution,
         "response_chars": len(result.action),
         "think_chars": think_chars,
@@ -202,7 +197,7 @@ class StepRecorder:
                     "reward": candidate.reward,
                     "visits": candidate.visits,
                     "seed": candidate.seed,
-                    "solution_sha1": _solution_hash(candidate.solution),
+                    "solution_sha1": solution_key(candidate.solution),
                 }
                 for candidate in archive.candidates
             ],

@@ -120,6 +120,16 @@ def check(method_name: str, task: str, state: Path) -> list[Stage]:
     if method.name.startswith("spottt"):
         tracker = (commits.get(2, {}).get("algorithm_state") or {}).get("spottt")
         update.require(bool(tracker), f"step 2 committed the SPO tracker ({len(tracker or {})} keys)")
+    if method.name.startswith("espottt"):
+        history = (commits.get(2, {}).get("algorithm_state") or {}).get("espottt")
+        update.require(bool(history), f"step 2 committed the reward history ({len(history or {})} keys)")
+    if method.name.startswith("hspottt"):
+        tracker = (commits.get(2, {}).get("algorithm_state") or {}).get("hspottt")
+        update.require(bool(tracker), f"step 2 committed the SPO tracker ({len(tracker or {})} keys)")
+        replays = (commits.get(2, {}).get("metrics") or {}).get("replays")
+        update.note(
+            f"step 2 replayed {replays} stepping stones (none is fine: a replay needs a success to descend from one)"
+        )
     for step, record in sorted(commits.items()):
         metrics = record.get("metrics") or {}
         shown = {key: metrics[key] for key in sorted(metrics) if any(part in key for part in ("clip", "kl", "loss"))}

@@ -13,6 +13,13 @@ case "$TTTD_METHOD" in
   tttd-mean) config=serve.tttd-mean.yaml ;;
   spottt) config=serve.spottt.yaml ;;
   spottt-smoke) config=serve.spottt-smoke.yaml ;;
+  spottt-adaptive) config=serve.spottt-adaptive.yaml ;;
+  espottt) config=serve.espottt.yaml ;;
+  espottt-smoke) config=serve.espottt-smoke.yaml ;;
+  espottt-adaptive) config=serve.espottt-adaptive.yaml ;;
+  espottt-adaptive-smoke) config=serve.espottt-adaptive-smoke.yaml ;;
+  hspottt) config=serve.hspottt.yaml ;;
+  hspottt-smoke) config=serve.hspottt-smoke.yaml ;;
   search-only) config=serve.search-only.yaml ;;
   ppottt) config=serve.ppottt.yaml; export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3} ;;
   ppottt-smoke) config=serve.ppottt-smoke.yaml; export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3} ;;
