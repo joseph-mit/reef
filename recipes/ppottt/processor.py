@@ -29,6 +29,8 @@ class StepRow:
 
     sample: PolicySample
     release_id: str | None
+    # The grid rows the row's step fills; all of them unless the harness ran a smaller step.
+    step_groups: int
 
 
 class PPOTTTProcessor(ReportedFeedbackProcessor):
@@ -41,6 +43,12 @@ class PPOTTTProcessor(ReportedFeedbackProcessor):
     policies. What goes away is the group: no advantage is computed from
     siblings, so constant-reward groups are kept (they still train the critic
     and still carry signal against it) and a group may hold a single attempt.
+
+    A report may announce ``step_groups``, the rows its step fills when the
+    harness runs a smaller step than the grid; the step is then complete at
+    ``step_groups * rollouts_per_group`` reports. Every report of a step must
+    announce the same size, and a step whose reports disagree is discarded
+    and reported as failed, like a step that mixes policy releases.
 
     Subclasses change the batch they emit through :meth:`make_step_batch` and
     the per-row payload through :meth:`make_row`; the barrier is shared.
@@ -68,6 +76,7 @@ class PPOTTTProcessor(ReportedFeedbackProcessor):
             raise ValueError("minibatch_size must be non-negative")
         self._assembly = SampleAssembly.from_config(context)
         self._failed_step_versions: dict[int, tuple[str, ...]] = {}
+        self._failed_step_sizes: dict[int, tuple[int, ...]] = {}
         super().__init__(context.with_config({**config, "batch_size": 1}))
 
     @property
@@ -98,7 +107,7 @@ class PPOTTTProcessor(ReportedFeedbackProcessor):
         inference = context.inferences[0]
         release_id = inference.artifact_ref.release_id if inference.artifact_ref is not None else None
         return ReportDecision.train(
-            StepRow(self.make_row(sample, parsed), release_id),
+            StepRow(self.make_row(sample, parsed), release_id, _groups_in_step(parsed)),
             group_key=parsed.step,
             slot=(parsed.group, parsed.rollout),
         )
@@ -108,7 +117,15 @@ class PPOTTTProcessor(ReportedFeedbackProcessor):
         return sample
 
     def decide_group(self, key: Hashable, candidates: tuple[Candidate, ...]) -> GroupDecision:
-        if len(candidates) != self.step_size:
+        sizes = {candidate.value.step_groups for candidate in candidates}
+        if len(sizes) > 1:
+            if not isinstance(key, int):
+                raise TypeError(f"step key must be an integer, got {key!r}")
+            self._failed_step_sizes[key] = tuple(sorted(sizes))
+            logger.error("step %s failed because its reports announce different sizes %s", key, sorted(sizes))
+            return GroupDecision.DISCARD
+        groups = sizes.pop() if sizes else self.groups_per_step
+        if len(candidates) != groups * self.rollouts_per_group:
             return GroupDecision.INCOMPLETE
         versions = {candidate.value.release_id for candidate in candidates if candidate.value.release_id is not None}
         if len(versions) <= 1:
@@ -124,22 +141,24 @@ class PPOTTTProcessor(ReportedFeedbackProcessor):
 
     def status(self) -> Mapping[str, Any]:
         """Expose steps discarded for mixing policy releases (read by the run controller)."""
-        return {
-            "failed_steps": [
-                {"step": step, "reason": "mixed_release_ids", "release_ids": list(versions)}
-                for step, versions in sorted(self._failed_step_versions.items())
-            ]
-        }
+        failed = [
+            {"step": step, "reason": "mixed_release_ids", "release_ids": list(versions)}
+            for step, versions in self._failed_step_versions.items()
+        ]
+        failed += [
+            {"step": step, "reason": "mixed_step_sizes", "release_ids": [], "step_groups": list(sizes)}
+            for step, sizes in self._failed_step_sizes.items()
+        ]
+        return {"failed_steps": sorted(failed, key=lambda item: (item["step"], item["reason"]))}
 
     def make_batch(self, units: tuple[BatchUnit, ...], batch_number: int) -> ScheduledPolicyBatch:
         if len(units) != 1:
             raise RuntimeError(f"{type(self).__name__} creates exactly one complete step per batch")
         unit = units[0]
         by_slot = {candidate.slot: candidate.value.sample for candidate in unit.candidates}
+        groups = unit.candidates[0].value.step_groups if unit.candidates else self.groups_per_step
         samples = tuple(
-            by_slot[(group, rollout)]
-            for group in range(self.groups_per_step)
-            for rollout in range(self.rollouts_per_group)
+            by_slot[(group, rollout)] for group in range(groups) for rollout in range(self.rollouts_per_group)
         )
         self.experiment_logger.log(step_reward_metrics(unit.group_key, samples), namespace=self.batch_label)
         return self.make_step_batch(unit.group_key, samples)
@@ -167,3 +186,9 @@ def step_reward_metrics(step: Any, samples: tuple[PolicySample, ...]) -> dict[st
         "reward_std": math.sqrt(math.fsum((reward - mean) ** 2 for reward in rewards) / len(rewards)),
         "reward_zero_fraction": sum(reward == 0 for reward in rewards) / len(rewards),
     }
+
+
+def _groups_in_step(report: Any) -> int:
+    """The rows a report's step fills; reports without ``step_groups`` fill the whole grid."""
+    step_groups = getattr(report, "step_groups", None)
+    return int(report.groups_per_step if step_groups is None else step_groups)

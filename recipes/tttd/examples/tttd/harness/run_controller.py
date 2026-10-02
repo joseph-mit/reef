@@ -68,6 +68,9 @@ class TTTDRunIdentity:
     seed_programs: tuple[str, ...] | None = None
     # The repeat rule's tolerance; None (off) keeps earlier runs' identity.
     repeat_tolerance: float | None = None
+    # The step-size policy and attempt budget (harness/step_size.py); None
+    # keeps the identity of runs with TTT-Discover's fixed steps.
+    step_size: tuple[tuple[str, Any], ...] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """The identity a state file records; ``siblings`` and ``seed_programs`` appear only when set."""
@@ -82,6 +85,10 @@ class TTTDRunIdentity:
             identity["seed_programs"] = list(self.seed_programs)
         if self.repeat_tolerance is None:
             identity.pop("repeat_tolerance")
+        if self.step_size is None:
+            identity.pop("step_size")
+        else:
+            identity["step_size"] = dict(self.step_size)
         return identity
 
 
@@ -369,7 +376,11 @@ class TTTDRunController:
             )
 
         all_results: list[Any] = []
+        last_step = total_steps
         for step in range(next_step, total_steps):
+            if self._budget_spent(step):
+                last_step = step
+                break
             before = self.status_reader.scenario_status(self.state_store.identity.scenario)
             if before is None:
                 if step != 0:
@@ -387,9 +398,7 @@ class TTTDRunController:
             search_started = time.monotonic()
             results = tuple(self.harness.run_step(step))
             search_seconds = time.monotonic() - search_started
-            expected_rollouts = (
-                self.state_store.identity.groups_per_step * self.state_store.identity.rollouts_per_group
-            )
+            expected_rollouts = self._expected_rollouts()
             if len(results) != expected_rollouts:
                 raise RuntimeError(f"TTTD step {step} returned {len(results)} rollouts, expected {expected_rollouts}")
             record_summary = self._record_step(step, results, best_before, previous_runtime_load_id)
@@ -428,7 +437,7 @@ class TTTDRunController:
         return TTTDRunOutcome(
             results=tuple(all_results),
             start_step=start_step,
-            next_step=total_steps,
+            next_step=last_step,
             runtime_load_id=runtime_load_id,
         )
 
@@ -449,14 +458,18 @@ class TTTDRunController:
                 f"saved TTTD state is already at step {next_step}, beyond requested total {total_steps}"
             )
         start_step = next_step
-        expected_rollouts = self.state_store.identity.groups_per_step * self.state_store.identity.rollouts_per_group
         all_results: list[Any] = []
+        last_step = total_steps
         for step in range(next_step, total_steps):
+            if self._budget_spent(step):
+                last_step = step
+                break
             self._emit({"event": "tttd_step_started", "step": step, "runtime_load_id": FROZEN_POLICY})
             best_before = self._best_reward()
             search_started = time.monotonic()
             results = tuple(self.harness.run_step(step))
             search_seconds = time.monotonic() - search_started
+            expected_rollouts = self._expected_rollouts()
             if len(results) != expected_rollouts:
                 raise RuntimeError(f"TTTD step {step} returned {len(results)} rollouts, expected {expected_rollouts}")
             record_summary = self._record_step(step, results, best_before, FROZEN_POLICY)
@@ -483,9 +496,24 @@ class TTTDRunController:
         return TTTDRunOutcome(
             results=tuple(all_results),
             start_step=start_step,
-            next_step=total_steps,
+            next_step=last_step,
             runtime_load_id=FROZEN_POLICY,
         )
+
+    def _expected_rollouts(self) -> int:
+        """The attempts the step just run should have: its planned rows, full by default."""
+        identity = self.state_store.identity
+        groups = getattr(self.harness, "last_step_groups", identity.groups_per_step)
+        return int(groups) * identity.rollouts_per_group
+
+    def _budget_spent(self, step: int) -> bool:
+        """Stop at this step boundary when the harness's attempt budget is spent."""
+        step_size = getattr(self.harness, "step_size", None)
+        if step_size is None or not step_size.spent(self.harness.archive.step_history):
+            return False
+        attempts = sum(record.attempts for record in self.harness.archive.step_history)
+        self._emit({"event": "tttd_attempt_budget_spent", "step": step, "attempts": attempts})
+        return True
 
     def _restore(self) -> tuple[int, str | None]:
         saved = self.state_store.load()

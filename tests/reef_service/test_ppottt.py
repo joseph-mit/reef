@@ -50,8 +50,10 @@ def _report(
     groups: int = GROUPS,
     rollouts: int = ROLLOUTS,
     algorithm: str = "ppottt",
+    step_groups: int | None = None,
 ) -> AgentRecord:
     reference = f"i-{step}-{group}-{rollout}"
+    extra = {} if step_groups is None else {"step_groups": step_groups}
     return AgentRecord.create(
         scenario="discovery",
         request_type=RequestType.REPORT,
@@ -68,6 +70,7 @@ def _report(
                 "groups_per_step": groups,
                 "rollouts_per_group": rollouts,
                 "parent_id": f"state-{group}",
+                **extra,
             },
         },
     )
@@ -112,7 +115,47 @@ def test_report_accepts_single_attempt_grids_and_rejects_foreign_tags() -> None:
         PPOTTTRolloutReport(1.0, 0, 0, 3, 1, 3)
 
 
+@pytest.mark.unit
+def test_report_validates_a_smaller_step() -> None:
+    report = PPOTTTRolloutReport(1.0, 0, 0, 0, 2, 3, step_groups=1)
+    assert report.groups_in_step == 1
+    assert PPOTTTRolloutReport(1.0, 0, 1, 0, 2, 3).groups_in_step == 2
+    for step_groups in (0, 3):
+        with pytest.raises(ReportValidationError, match="step_groups"):
+            PPOTTTRolloutReport(1.0, 0, 0, 0, 2, 3, step_groups=step_groups)
+    with pytest.raises(ReportValidationError, match="group must sit"):
+        PPOTTTRolloutReport(1.0, 0, 1, 0, 2, 3, step_groups=1)
+
+
 # --- processor ---
+
+
+@pytest.mark.unit
+def test_processor_trains_a_smaller_step_once_its_rows_are_in() -> None:
+    processor = _processor()
+    for rollout, reward in enumerate((0.5, 1.5, 2.5)):
+        processor.ingest(_inference(f"i-0-0-{rollout}", 100 + rollout))
+        assert not processor.ready()
+        processor.ingest(_report(0, 0, rollout, reward, step_groups=1))
+
+    batch = processor.build_batch()
+    assert batch.batch_id == "discovery:ppottt:0"
+    assert [sample.reward for sample in batch.samples] == [0.5, 1.5, 2.5]
+
+
+@pytest.mark.unit
+def test_processor_discards_a_step_whose_reports_announce_different_sizes(caplog) -> None:
+    processor = _processor()
+    with caplog.at_level("ERROR", logger="recipes.ppottt.processor"):
+        for rollout in range(ROLLOUTS):
+            processor.ingest(_inference(f"i-0-0-{rollout}", 100 + rollout))
+            processor.ingest(_report(0, 0, rollout, 1.0, step_groups=1 if rollout else None))
+
+    assert not processor.ready()
+    assert "different sizes" in caplog.text
+    assert processor.status() == {
+        "failed_steps": [{"step": 0, "reason": "mixed_step_sizes", "release_ids": [], "step_groups": [1, 2]}]
+    }
 
 
 @pytest.mark.unit

@@ -26,6 +26,7 @@ from .run_controller import ReefTrainingStatusClient, TTTDRunController, TTTDRun
 from .search import Scorer, TTTDChatRequestBuilder
 from .siblings import SiblingSettings
 from .step_records import StepRecorder
+from .step_size import StepSizeSettings
 
 # Seed program paths in a config are relative to the example directory.
 EXAMPLE_DIR = Path(__file__).resolve().parents[1]
@@ -67,6 +68,9 @@ class StackSettings:
     # The config's search.repeat_tolerance: a known score found again is
     # trained on its parent's reward (harness/agent.py); None turns it off.
     repeat_tolerance: float | None = None
+    # The config's search.step_size: smaller steps once the best stalls, and
+    # an attempt budget (harness/step_size.py); the default keeps fixed steps.
+    step_size: StepSizeSettings = field(default_factory=StepSizeSettings)
 
     @classmethod
     def load(cls, path: Path) -> StackSettings:
@@ -82,6 +86,7 @@ class StackSettings:
             siblings=SiblingSettings.from_mapping((stack.get("search") or {}).get("siblings")),
             seed_programs=seed_programs_from(stack, os.environ),
             repeat_tolerance=_optional_float((stack.get("search") or {}).get("repeat_tolerance")),
+            step_size=StepSizeSettings.from_mapping((stack.get("search") or {}).get("step_size")),
         )
 
 
@@ -157,6 +162,7 @@ def build_run(
         siblings=settings.siblings,
         repeat_tolerance=settings.repeat_tolerance,
         code_language=code_language(task),
+        step_size=settings.step_size,
     )
     # Seeds are scored on every start; a resumed run then replaces the
     # archive with its saved one, which already holds them.
@@ -181,6 +187,7 @@ def build_run(
         siblings=settings.siblings.identity(),
         seed_programs=tuple(hashlib.sha256(seed.encode("utf-8")).hexdigest() for seed in seeds) or None,
         repeat_tolerance=settings.repeat_tolerance,
+        step_size=settings.step_size.identity(),
     )
     controller = TTTDRunController(
         harness,

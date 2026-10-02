@@ -19,6 +19,7 @@ from reef_client import ReefClient
 
 from .search import Candidate, RolloutResult, Scorer, _TTTDiscoverHarnessBase, solution_key
 from .siblings import SiblingSettings
+from .step_size import StepSizeSettings
 
 # Report tags of methods whose advantage compares a parent's sibling group.
 GROUP_ALGORITHMS = ("ttt-discover", "tttd")
@@ -48,12 +49,15 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         siblings: SiblingSettings | None = None,
         repeat_tolerance: float | None = None,
         code_language: str = "python",
+        step_size: StepSizeSettings | None = None,
     ) -> None:
         if siblings is not None and siblings.adaptive and algorithm in GROUP_ALGORITHMS:
             raise ValueError(
                 "adaptive siblings give parents different numbers of attempts; "
                 f"{algorithm!r} compares each parent's fixed sibling group"
             )
+        if step_size is not None and step_size.varies and algorithm in GROUP_ALGORITHMS:
+            raise ValueError(f"smaller steps leave grid rows empty; {algorithm!r} trains only on the full grid")
         super().__init__(
             scorer,
             instruction,
@@ -66,6 +70,7 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
             request_builder=request_builder,
             siblings=siblings,
             code_language=code_language,
+            step_size=step_size,
         )
         self.client = client
         self.scenario = scenario
@@ -140,6 +145,9 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
             "solution_sha1": solution_key(result.solution),
             "parent_solution_sha1": solution_key(parent.solution),
         }
+        if self.step_size.varies:
+            # The rows this step fills; Reef trains the step once all of them are in.
+            metadata["step_groups"] = self.last_step_groups
         if not self.train:
             metadata["training"] = {"eligible": False}
         score = self.training_score(result.reward, parent)

@@ -279,14 +279,43 @@ search archive still keeps its real score, and the report records it as
 `repeat_of_known_score`. Unset, every score trains as before, and the run's
 identity is unchanged. No run has used it yet.
 
-## Ideas for beating the best known results
+## Smaller steps once progress stalls
 
-These are not implemented; each names the change it would need.
+Once the best score stops moving, a step of 512 attempts buys one policy
+update. Smaller steps update the policy more often for the same attempts.
+With a config's `search.step_size` block, the harness plans each step from the
+steps already finished:
 
-- **Shrink steps once the archive stops improving.** Adaptive siblings
-  (below) already decide how many attempts each parent needs. A step could
-  likewise get smaller once the best score stops moving, trading attempts per
-  step for more training steps, which is the batch-size question for PPO-TTT.
+```yaml
+search:
+  step_size:
+    policy: stall        # fixed (default) keeps TTT-Discover's full grid
+    patience: 3          # steps in a row without improvement before shrinking
+    min_groups: 4        # parents per step while stalled (of groups_per_step)
+    tolerance: 1.0e-9    # a rise no larger than this is no improvement
+    attempt_budget: 25600  # optional: stop at the first step boundary that reaches it
+```
+
+While the best score has not risen by more than `tolerance` for `patience`
+steps in a row, a step expands `min_groups` parents (`rollouts_per_group`
+attempts each); as soon as a step improves, the next one is full again. Set
+`training.steps` higher than the grid alone needs and `attempt_budget` to the
+attempts you want to spend, and a run with smaller steps spends the same
+budget over more training steps; this is the batch-size comparison PPO-TTT
+raises.
+
+Each report of a smaller step announces `step_groups`, and PPO-TTT's step
+barrier (shared by SPO-TTT, entropic SPO-TTT and stepping-stone SPO-TTT)
+trains the step once `step_groups * rollouts_per_group` reports are in; a step
+whose reports disagree is discarded and stops the run, as a step that mixes
+policy releases does. The choice reads only the per-step history saved with
+the search archive, so a step repeated after a restart is planned the same
+way, and a restarted run counts the attempts already spent. TTT-Discover's
+grouped methods train only on the full grid, so the harness refuses the
+policy for them. The default `fixed` policy changes nothing, including the
+run identity. The trainer receives these smaller batches through the same
+per-step schedule that stepping-stone SPO-TTT's larger ones use; neither has
+run on GPUs yet.
 
 ## Setup (once)
 

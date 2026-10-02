@@ -24,6 +24,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .siblings import AttemptStats, SiblingSettings, allocate_siblings
+from .step_size import StepRecord, StepSizeSettings
 
 Scorer = Callable[[str], "ScoredSolution"]
 
@@ -109,6 +110,8 @@ class PUCTArchive:
         self._items: dict[str, Candidate] = {}
         # What is known about each parent's attempts; only adaptive siblings read it.
         self.attempt_stats = AttemptStats()
+        # One record per finished step; the step-size policy reads it.
+        self.step_history: list[StepRecord] = []
 
     @property
     def candidates(self) -> tuple[Candidate, ...]:
@@ -272,6 +275,7 @@ class PUCTArchive:
                 for candidate in self._items.values()
             ],
             "attempt_stats": self.attempt_stats.state_dict(keep=self._items),
+            "step_history": [record.as_dict() for record in self.step_history],
         }
 
     def load_state_dict(self, snapshot: Mapping[str, Any]) -> None:
@@ -301,6 +305,11 @@ class PUCTArchive:
             attempt_stats = AttemptStats(snapshot.get("attempt_stats"))
         except (TypeError, ValueError, IndexError) as exc:
             raise ValueError("invalid PUCT archive attempt statistics") from exc
+        try:
+            # Snapshots written before step records existed have none.
+            step_history = [StepRecord.from_mapping(row) for row in snapshot.get("step_history") or ()]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("invalid PUCT archive step history") from exc
 
         restored: dict[str, Candidate] = {}
         for row in rows:
@@ -371,6 +380,7 @@ class PUCTArchive:
         self._next_id = next_id
         self._items = restored
         self.attempt_stats = attempt_stats
+        self.step_history = step_history
 
     def _new_candidate(
         self,
@@ -523,6 +533,7 @@ class _TTTDiscoverHarnessBase:
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
         siblings: SiblingSettings | None = None,
         code_language: str = "python",
+        step_size: StepSizeSettings | None = None,
     ) -> None:
         # Group-relative recipes need siblings and enforce that on the Reef
         # side; the search itself runs with any number of attempts per parent.
@@ -541,6 +552,14 @@ class _TTTDiscoverHarnessBase:
         self.siblings = siblings or SiblingSettings()
         # The fenced block a response's program is read from: python, or cpp for AtCoder tasks.
         self.code_language = code_language
+        self.step_size = step_size or StepSizeSettings()
+        if self.step_size.min_groups > groups_per_step and self.step_size.varies:
+            raise ValueError(
+                f"step_size.min_groups {self.step_size.min_groups} exceeds groups_per_step {groups_per_step}"
+            )
+        # How many grid rows the latest planned step uses; the run controller
+        # checks the step's results against it.
+        self.last_step_groups = groups_per_step
         self.archive = PUCTArchive(exploration=exploration)
         for _ in range(groups_per_step):
             self.archive.add_seed("", 0.0, 0.0)
@@ -559,16 +578,20 @@ class _TTTDiscoverHarnessBase:
             raise ValueError(f"the seed program scored {scored.reward}: {scored.output.strip()[-500:]}")
         return self.archive.add_seed(scored.solution, scored.reward, scored.value, output=scored.output)
 
+    def planned_groups(self) -> int:
+        """How many grid rows the next step uses: all of them unless the step-size policy shrinks it."""
+        return self.step_size.groups_for(self.archive.step_history, self.groups_per_step)
+
     def _plan_step(self, step: int) -> tuple[tuple[Candidate, ...], list[int]]:
         """The step's parents in PUCT order and how many attempts each gets."""
+        groups = self.planned_groups()
+        self.last_step_groups = groups
         if not self.siblings.adaptive:
-            parents = self.archive.select(self.groups_per_step)
-            if len(parents) != self.groups_per_step:
-                raise RuntimeError(
-                    f"PUCT could select only {len(parents)} independent lineages for {self.groups_per_step} groups"
-                )
+            parents = self.archive.select(groups)
+            if len(parents) != groups:
+                raise RuntimeError(f"PUCT could select only {len(parents)} independent lineages for {groups} groups")
             return parents, [self.rollouts_per_group] * len(parents)
-        budget = self.groups_per_step * self.rollouts_per_group
+        budget = groups * self.rollouts_per_group
         wanted = max(1, min(self.siblings.max_parents, budget // self.siblings.min_siblings))
         candidates = self.archive.select(wanted)
         known = [
@@ -579,6 +602,7 @@ class _TTTDiscoverHarnessBase:
         return candidates[: len(allocations)], allocations
 
     def run_step(self, step: int) -> tuple[RolloutResult, ...]:
+        best_before = self._best_reward()
         parents, allocations = self._plan_step(step)
         self.last_selection = self.archive.describe_selection(parents, allocations)
         # Every attempt keeps an address in the step's grid; under adaptive
@@ -621,7 +645,11 @@ class _TTTDiscoverHarnessBase:
                 valid,
                 failed_rollouts=len(results) - len(valid),
             )
+        self.archive.step_history.append(StepRecord(step, len(all_results), best_before, self._best_reward()))
         return all_results
+
+    def _best_reward(self) -> float:
+        return max((candidate.reward for candidate in self.archive.candidates), default=-math.inf)
 
     def run(self, steps: int = 50) -> Candidate:
         if steps < 1:
@@ -714,6 +742,7 @@ class TTTDiscoverHarness(_TTTDiscoverHarnessBase):
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
         siblings: SiblingSettings | None = None,
         code_language: str = "python",
+        step_size: StepSizeSettings | None = None,
     ) -> None:
         super().__init__(
             scorer,
@@ -727,6 +756,7 @@ class TTTDiscoverHarness(_TTTDiscoverHarnessBase):
             request_extra=request_extra,
             action_from_response=action_from_response,
             code_language=code_language,
+            step_size=step_size,
             request_builder=request_builder,
             siblings=siblings,
         )
