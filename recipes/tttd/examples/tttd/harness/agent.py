@@ -47,6 +47,7 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         train: bool = True,
         siblings: SiblingSettings | None = None,
         repeat_tolerance: float | None = None,
+        code_language: str = "python",
     ) -> None:
         if siblings is not None and siblings.adaptive and algorithm in GROUP_ALGORITHMS:
             raise ValueError(
@@ -64,6 +65,7 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
             max_workers=max_workers,
             request_builder=request_builder,
             siblings=siblings,
+            code_language=code_language,
         )
         self.client = client
         self.scenario = scenario

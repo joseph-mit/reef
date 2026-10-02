@@ -43,11 +43,11 @@ from reef_client import ReefClient
 from harness.methods import DEFAULT_METHOD, method_named, scenario_name, state_dir
 from harness.run_controller import ReefTrainingStatusClient
 from harness.scorer import JudgeScorer, _codeblock_body, judge_slots
-from harness.session import SERVICE_URL, TOKEN, StackSettings, build_run
+from harness.session import SERVICE_URL, TOKEN, StackSettings, build_run, code_language
 
 HERE = Path(__file__).resolve().parent
 MODEL = "Qwen/Qwen3-8B"  # the model run.sh downloaded, as run.py names it
-TASKS = ("erdos_min_overlap", "circle_packing_26", "circle_packing_32")
+TASKS = ("erdos_min_overlap", "circle_packing_26", "circle_packing_32", "ahc058")
 # The tasks' compose files publish the judge on 8082; run.sh sets TTTD_JUDGE_PORT.
 JUDGE_PORT = int(os.environ.get("TTTD_JUDGE_PORT", "8082"))
 JUDGE_READY_TIMEOUT_S = 120.0
@@ -193,7 +193,8 @@ def main() -> None:
 
     best = harness.archive.best()
     if best.solution:
-        (state / "best_solution.py").write_text(_codeblock_body(best.solution) + "\n")
+        suffix = ".cpp" if code_language(task) == "cpp" else ".py"
+        (state / f"best_solution{suffix}").write_text(_codeblock_body(best.solution) + "\n")
     summary = {
         "time": time.time(),
         "method": method.name,

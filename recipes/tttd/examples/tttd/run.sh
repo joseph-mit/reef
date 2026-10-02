@@ -47,19 +47,19 @@ esac
 # On an external cluster, its node configuration determines GPU visibility.
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1}
 
-# This example ships three tasks. run.py and the harness derive the scenario and
-# state directory from TTTD_TASK; only serve.yaml needs these three, because a
-# YAML cannot compute them, and packing needs a longer context on the same GPUs.
+# This example ships four tasks. run.py and the harness derive the scenario and
+# state directory from TTTD_TASK; only serve.yaml needs these values, because a
+# YAML cannot compute them, and packing and AHC058 need a longer context on the same GPUs.
 TTTD_TASK=${TTTD_TASK:-erdos_min_overlap}
 case "$TTTD_TASK" in
   erdos_min_overlap)
     export TTTD_SEQ_LENGTH=30000 TTTD_MAX_TOKENS_PER_GPU=30000 TTTD_LOG_PROBS_CHUNK_SIZE=1024
     ;;
-  circle_packing_26|circle_packing_32)
+  circle_packing_26|circle_packing_32|ahc058)
     export TTTD_SEQ_LENGTH=32768 TTTD_MAX_TOKENS_PER_GPU=16384 TTTD_LOG_PROBS_CHUNK_SIZE=512
     ;;
   *)
-    echo "run.sh: unknown TTTD_TASK '$TTTD_TASK' (choose erdos_min_overlap, circle_packing_26, or circle_packing_32)" >&2
+    echo "run.sh: unknown TTTD_TASK '$TTTD_TASK' (choose erdos_min_overlap, circle_packing_26, circle_packing_32, or ahc058)" >&2
     exit 1
     ;;
 esac

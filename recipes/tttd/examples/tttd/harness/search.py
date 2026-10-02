@@ -456,15 +456,25 @@ def solution_key(solution: str) -> str:
 # Generic prompt construction
 # ---------------------------------------------------------------------------
 
-_CODEBLOCK_RE = re.compile(r"```python\n(?!```)(.*?)(?:\n```)?(?=\n```|$)", re.DOTALL)
+_CODEBLOCK_RES: dict[str, re.Pattern[str]] = {}
+# How an error message names a language; step records match the Python one.
+_LANGUAGE_NAMES = {"python": "Python", "cpp": "C++"}
 
 
-def extract_solution(action: str) -> str:
-    """Extract the last Python code block from a model response."""
-    matches = list(_CODEBLOCK_RE.finditer(action))
+def _codeblock_re(language: str) -> re.Pattern[str]:
+    pattern = _CODEBLOCK_RES.get(language)
+    if pattern is None:
+        pattern = re.compile(rf"```{re.escape(language)}\n(?!```)(.*?)(?:\n```)?(?=\n```|$)", re.DOTALL)
+        _CODEBLOCK_RES[language] = pattern
+    return pattern
+
+
+def extract_solution(action: str, language: str = "python") -> str:
+    """Extract the last code block in ``language`` (``python`` or ``cpp``) from a model response."""
+    matches = list(_codeblock_re(language).finditer(action))
     if not matches:
         return ""
-    return "```python\n" + matches[-1].group(1).rstrip() + "\n```"
+    return f"```{language}\n" + matches[-1].group(1).rstrip() + "\n```"
 
 
 def build_prompt(instruction: str, parent: Candidate | None) -> Sequence[Mapping[str, Any]]:
@@ -512,6 +522,7 @@ class _TTTDiscoverHarnessBase:
         action_from_response: Callable[[Mapping[str, Any]], str] | None = None,
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
         siblings: SiblingSettings | None = None,
+        code_language: str = "python",
     ) -> None:
         # Group-relative recipes need siblings and enforce that on the Reef
         # side; the search itself runs with any number of attempts per parent.
@@ -528,6 +539,8 @@ class _TTTDiscoverHarnessBase:
         self.action_from_response = action_from_response or openai_action
         self.request_builder = request_builder
         self.siblings = siblings or SiblingSettings()
+        # The fenced block a response's program is read from: python, or cpp for AtCoder tasks.
+        self.code_language = code_language
         self.archive = PUCTArchive(exploration=exploration)
         for _ in range(groups_per_step):
             self.archive.add_seed("", 0.0, 0.0)
@@ -644,9 +657,11 @@ class _TTTDiscoverHarnessBase:
         evaluation_seconds: float | None = None
         try:
             action = self.action_from_response(response)
-            solution = extract_solution(action)
+            solution = extract_solution(action, self.code_language)
             if not solution:
-                raise ValueError("response does not contain a Python code block")
+                raise ValueError(
+                    f"response does not contain a {_LANGUAGE_NAMES.get(self.code_language, self.code_language)} code block"
+                )
             started = time.monotonic()
             try:
                 scored = self.scorer(solution)
@@ -698,6 +713,7 @@ class TTTDiscoverHarness(_TTTDiscoverHarnessBase):
         action_from_response: Callable[[Mapping[str, Any]], str] | None = None,
         request_builder: Callable[[str, Sequence[Mapping[str, Any]], Mapping[str, Any]], dict[str, Any]] | None = None,
         siblings: SiblingSettings | None = None,
+        code_language: str = "python",
     ) -> None:
         super().__init__(
             scorer,
@@ -710,6 +726,7 @@ class TTTDiscoverHarness(_TTTDiscoverHarnessBase):
             max_workers=max_workers,
             request_extra=request_extra,
             action_from_response=action_from_response,
+            code_language=code_language,
             request_builder=request_builder,
             siblings=siblings,
         )

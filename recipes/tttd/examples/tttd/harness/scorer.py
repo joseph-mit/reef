@@ -26,13 +26,14 @@ from .search import ScoredSolution
 
 Scorer = Callable[[str], ScoredSolution]
 
-_CODEBLOCK_RE = re.compile(r"```python\s+([\s\S]*?)\s*```")
+# The first fenced block, in any language (python, or cpp for AtCoder tasks).
+_CODEBLOCK_RE = re.compile(r"```[A-Za-z0-9_+-]*\s+([\s\S]*?)\s*```")
 
 
 def _codeblock_body(codeblock: str) -> str:
     match = _CODEBLOCK_RE.search(codeblock)
     if match is None:
-        raise ValueError("cannot extract Python code")
+        raise ValueError("cannot extract C++ code" if codeblock.startswith("```cpp") else "cannot extract Python code")
     return match.group(1).strip()
 
 

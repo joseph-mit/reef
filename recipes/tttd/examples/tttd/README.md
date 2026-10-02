@@ -14,6 +14,7 @@ harbor/               self-contained reef-eval/Harbor task definitions
   erdos_min_overlap/
   circle_packing_26/
   circle_packing_32/
+  ahc058/
     task.toml            metadata, timeouts, resource limits
     instruction.md       exact task prompt shown to the model
     environment/         container, judge service, canonical verifier
@@ -150,6 +151,34 @@ the reward directly as `sum(radii)`. The reported sum is never trusted. Both
 task prompts preserve their corresponding initial TTT-Discover prompt byte for
 byte.
 
+`harbor/ahc058/` adapts TTT-Discover's AtCoder Heuristic Contest 058 task
+(production planning: 500 turns of machine upgrades to maximise the apples
+produced). The model writes a C++20 program. The judge compiles it once with
+the host's `g++` and ALE-Bench's C++20 flags, then runs it on 50 public cases
+in order, two at a time, each with the contest's 2-second limit (plus
+ALE-Bench's 0.5 s tolerance) and 1 GiB of memory. A case scores the official
+`round(1e5 * log2(apples))`, computed by a port of the official Rust tester
+that keeps its 64-bit wrapping arithmetic; 700 random plans, including ones
+that overflow, scored identically under both. As in TTT-Discover, evaluation
+stops at the first case that fails, later cases score 0, and the reward is
+the mean case score divided by 3e6. The prompt is TTT-Discover's
+`AhcEnv.get_question()` for the task's initial state, byte for byte,
+including the LaTeX escapes its Python string turns into control characters.
+Three things differ from TTT-Discover's ALE-Bench run and are worth knowing
+before comparing numbers:
+
+- The cases are the first 50 inputs of the official tools' `in/` directory as
+  shipped in TTT-Discover's repository. TTT-Discover evaluates on a cached
+  set this repository cannot download, so absolute scores may differ.
+- The AtCoder Library, Boost, GMP and Eigen are not installed. A program that
+  includes them fails to compile unless `AHC_INCLUDE_DIRS` lists their header
+  directories.
+- The early stop is by case order, so a reward never depends on timing.
+
+The judge runs 16 programs at once (`judge_config.json`), 32 CPUs at two
+cases each; lower it if the training stack needs more of the node. The
+Apptainer image installs `g++` if its base lacks it.
+
 ## Judge slots and timeouts
 
 Each task's judge runs at most `max_concurrent_submissions` programs at once
@@ -179,8 +208,10 @@ autocorrelation tasks moved by under 1%
 
 Candidates with more room, all from
 [TTT-Discover](https://arxiv.org/abs/2601.16175) with gpt-oss-120b; none has
-a published Qwen3-8B result, and neither is ported here yet (both environments
-are in the [TTT-Discover repository](https://github.com/test-time-training/discover)):
+a published Qwen3-8B result. AHC058 now ships here as `harbor/ahc058` (see
+below); TriMul is in the
+[TTT-Discover repository](https://github.com/test-time-training/discover) but
+not ported:
 
 | Task | Without training | With TTT-Discover | Best human | Judge |
 | --- | ---: | ---: | ---: | --- |

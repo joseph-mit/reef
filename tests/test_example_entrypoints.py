@@ -132,6 +132,15 @@ def _load_harness(monkeypatch, example: str):
             "work/circle_packing_32/lab",
             "Qwen/Qwen3-8B",
         ),
+        (
+            "tttd",
+            "tttd",
+            "ahc058",
+            ("harbor/ahc058",),
+            (None,),
+            "work/ahc058/lab",
+            "Qwen/Qwen3-8B",
+        ),
     ],
 )
 def test_reef_eval_entrypoint_dispatches_the_documented_workload(
@@ -191,7 +200,7 @@ def test_tttd_entrypoint_rejects_an_unknown_task(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "reef_eval", reef_eval)
     monkeypatch.setenv("TTTD_TASK", "not-a-task")
 
-    with pytest.raises(SystemExit, match=r"unknown TTTD_TASK.*circle_packing_32"):
+    with pytest.raises(SystemExit, match=r"unknown TTTD_TASK.*ahc058"):
         runpy.run_path(str(EXAMPLE_DIRS["tttd"] / "run.py"))
 
 

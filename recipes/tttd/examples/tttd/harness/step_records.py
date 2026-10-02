@@ -33,7 +33,10 @@ _NUMBER = re.compile(r"\d+(\.\d+)?")
 def failure_kind(result: RolloutResult, invalid_reward: float) -> str:
     """A short, countable name for why an attempt scored nothing; "" when it scored."""
     if result.error:
-        if "does not contain a Python code block" in result.error:
+        if (
+            "does not contain a Python code block" in result.error
+            or "does not contain a C++ code block" in result.error
+        ):
             return "no code block"
         return result.error.split(":", 1)[0]
     if result.reward != invalid_reward:

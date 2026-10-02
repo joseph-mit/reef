@@ -100,17 +100,22 @@ def seed_programs_from(stack: Mapping[str, Any], environ: Mapping[str, str]) -> 
     return tuple(str(path) for path in configured)
 
 
-def read_seed_program(path: Path) -> str:
+def read_seed_program(path: Path, language: str = "python") -> str:
     """A program file as the model's fenced code block, the form the judge and the prompt expect."""
     code = Path(path).read_text().strip()
     if not code:
         raise ValueError(f"seed program {path} is empty")
-    return f"```python\n{code}\n```"
+    return f"```{language}\n{code}\n```"
 
 
 def max_workers(task: str) -> int:
     """Concurrent rollouts and evaluations; the packing tasks need the memory headroom."""
     return 256 if task.startswith("circle_packing") else 512
+
+
+def code_language(task: str) -> str:
+    """The language a task's programs are written in: C++ for the AtCoder tasks, else Python."""
+    return "cpp" if task.startswith("ahc") else "python"
 
 
 def build_run(
@@ -151,10 +156,11 @@ def build_run(
         ),
         siblings=settings.siblings,
         repeat_tolerance=settings.repeat_tolerance,
+        code_language=code_language(task),
     )
     # Seeds are scored on every start; a resumed run then replaces the
     # archive with its saved one, which already holds them.
-    seeds = [read_seed_program(EXAMPLE_DIR / path) for path in settings.seed_programs]
+    seeds = [read_seed_program(EXAMPLE_DIR / path, code_language(task)) for path in settings.seed_programs]
     for seed in seeds:
         harness.add_known_seed(seed)
     identity = TTTDRunIdentity(

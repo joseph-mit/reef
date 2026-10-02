@@ -14,6 +14,7 @@ JUDGE_SERVERS = (
     REPO_ROOT / "recipes/tttd/examples/tttd/harbor/erdos_min_overlap/environment/judge_server.py",
     REPO_ROOT / "recipes/tttd/examples/tttd/harbor/circle_packing_26/environment/judge_server.py",
     REPO_ROOT / "recipes/tttd/examples/tttd/harbor/circle_packing_32/environment/judge_server.py",
+    REPO_ROOT / "recipes/tttd/examples/tttd/harbor/ahc058/environment/judge_server.py",
 )
 
 

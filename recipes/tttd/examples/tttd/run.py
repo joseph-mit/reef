@@ -23,9 +23,9 @@ from reef_eval import Lab
 
 MODEL = "Qwen/Qwen3-8B"  # the model run.sh downloaded
 
-# The three tasks this example ships. run.sh picks one with TTTD_TASK and sizes
+# The four tasks this example ships. run.sh picks one with TTTD_TASK and sizes
 # the training stack for it; harness/harbor_agent.py reads the same variable.
-TASKS = ("erdos_min_overlap", "circle_packing_26", "circle_packing_32")
+TASKS = ("erdos_min_overlap", "circle_packing_26", "circle_packing_32", "ahc058")
 TASK = os.environ.get("TTTD_TASK", TASKS[0])
 if TASK not in TASKS:
     raise SystemExit(f"unknown TTTD_TASK {TASK!r}; choose {', '.join(TASKS)}")

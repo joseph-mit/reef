@@ -33,11 +33,12 @@ VALIDATOR_SHA256 = "f7aa4deec93f5bb7c0703df5b29a4aff9c2d9e4f03471ec1911c0e37bf4f
 
 def test_tttd_harbor_tasks_have_a_uniform_layout() -> None:
     assert {path.name for path in TTTD_HARBOR.iterdir() if path.is_dir()} == {
+        "ahc058",
         "circle_packing_26",
         "circle_packing_32",
         "erdos_min_overlap",
     }
-    for task in ("erdos_min_overlap", *PACKING_TASKS):
+    for task in ("erdos_min_overlap", *PACKING_TASKS, "ahc058"):
         task_root = TTTD_HARBOR / task
         assert (task_root / "task.toml").is_file()
         assert (task_root / "instruction.md").is_file()

@@ -182,7 +182,7 @@ exit confirms that Reef committed the requested number of training steps.
 Choose a problem
 ----------------
 
-Three Harbor tasks ship with the example:
+Four Harbor tasks ship with the example:
 
 +-----------------------+-----------------------+---------------------------------------+-----------------+
 | Value                 | Generated entry point | Reward                                | Program timeout |
@@ -193,10 +193,16 @@ Three Harbor tasks ship with the example:
 +-----------------------+-----------------------+---------------------------------------+-----------------+
 | ``circle_packing_32`` | ``run_packing()``     | Verified sum of 32 circle radii       | 530 seconds     |
 +-----------------------+-----------------------+---------------------------------------+-----------------+
+| ``ahc058``            | C++ ``main()``        | Mean AtCoder score over 50 cases / 3e6| 2 seconds a case|
++-----------------------+-----------------------+---------------------------------------+-----------------+
 
 Erdős is the default. ``TTTD_TASK`` selects another: ``run.sh`` gives each task
 its own scenario and state directory, and sizes the memory limits for it,
-because the packing tasks need a longer context on the same GPUs.
+because the packing tasks and AHC058 need a longer context on the same GPUs.
+AHC058 (AtCoder Heuristic Contest 058) asks for a C++20 program; its judge
+compiles it with the host's ``g++`` and runs it on 50 public cases, two at a
+time, so size its ``max_concurrent_submissions`` to the CPUs the training
+stack leaves free.
 
 .. code:: bash
 

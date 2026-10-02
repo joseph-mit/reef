@@ -51,6 +51,14 @@ From: slimerl/slime@sha256:a97ec147e37bef050337a9b229036eda00b4aa9c4d02b31a0109d
     fi
     pip install --no-deps "megatron-bridge==0.4.2"
 
+    # The AHC058 judge compiles each submitted C++ program with g++ and runs
+    # it under prlimit; the base usually has both, so install only if missing.
+    if ! command -v g++ > /dev/null || ! command -v prlimit > /dev/null; then
+        apt-get update
+        apt-get install -y --no-install-recommends g++ util-linux
+        rm -rf /var/lib/apt/lists/*
+    fi
+
     # The tttd target's solver dependencies for generated Erdos programs.
     pip install "cvxpy<1.9" "numpy==1.26.4"
 

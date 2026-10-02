@@ -1,0 +1,28 @@
+schema_version = "1.4"
+
+artifacts = []
+
+[task]
+name = "reef-eval/tttd-ahc058"
+description = "AtCoder Heuristic Contest 058: plan 500 turns of machine upgrades to maximize the apples produced. The agent writes a C++20 program; reward = mean official score over 50 public cases / 3e6."
+
+[metadata]
+category = "autoresearch"
+author_name = "Reef"
+difficulty = "hard"
+tags = ["reef", "tttd", "atcoder", "ahc058", "discovery"]
+
+[agent]
+# One Harbor trial owns the complete multi-step TTT trajectory.
+timeout_sec = 604800.0
+
+[verifier]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+cpus = 1
+memory_mb = 16384
+storage_mb = 10240
+network_mode = "allowlist"
+allowed_hosts = ["judge"]

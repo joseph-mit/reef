@@ -1,0 +1,11 @@
+# The judge's container: the server, this task's scoring files and its cases,
+# with g++ to compile the submitted C++ program.
+FROM python:3.12-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY judge_server.py score.py judge_config.json /judge/
+COPY cases /judge/cases
+CMD ["python3", "/judge/judge_server.py"]
