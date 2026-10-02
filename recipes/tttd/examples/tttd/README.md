@@ -236,17 +236,22 @@ packing scores 2.635983084915, the same to 11 digits: that packing is
 already at its numerical optimum, and anything better needs a new
 arrangement.
 
+## Not rewarding repeats
+
+From step 16 of our SPO-TTT run, 10 to 14% of attempts per step land within
+1e-4 of the best score, most likely the same packing found again, and
+training keeps rewarding them. With `search.repeat_tolerance` set in a
+config (for example `1e-9`), an attempt that beats its parent only by
+finding a score already in the archive (within the tolerance) is reported to
+Reef with its parent's reward, so training treats it as no progress. The
+search archive still keeps its real score, and the report records it as
+`repeat_of_known_score`. Unset, every score trains as before, and the run's
+identity is unchanged. No run has used it yet.
+
 ## Ideas for beating the best known results
 
 These are not implemented; each names the change it would need.
 
-- **Stop rewarding repeats.** From step 16 of our SPO-TTT run, 10 to 14% of
-  attempts per step land within 1e-4 of the best score, most likely the
-  same packing found again. Training keeps rewarding them, which narrows the
-  search just when new ideas are needed. The harness already
-  reports each program's key and its parent's; an attempt whose result
-  matches one already in the archive could get its parent's reward instead
-  of its own.
 - **Shrink steps once the archive stops improving.** Adaptive siblings
   (below) already decide how many attempts each parent needs. A step could
   likewise get smaller once the best score stops moving, trading attempts per

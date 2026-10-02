@@ -66,6 +66,8 @@ class TTTDRunIdentity:
     # SHA-256 of each seed program, so a run never resumes under other seeds;
     # None keeps the identity of runs without seeds.
     seed_programs: tuple[str, ...] | None = None
+    # The repeat rule's tolerance; None (off) keeps earlier runs' identity.
+    repeat_tolerance: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """The identity a state file records; ``siblings`` and ``seed_programs`` appear only when set."""
@@ -78,6 +80,8 @@ class TTTDRunIdentity:
             identity.pop("seed_programs")
         else:
             identity["seed_programs"] = list(self.seed_programs)
+        if self.repeat_tolerance is None:
+            identity.pop("repeat_tolerance")
         return identity
 
 

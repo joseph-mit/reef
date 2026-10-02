@@ -64,6 +64,9 @@ class StackSettings:
     # search.seed_programs, or TTTD_SEED_PROGRAMS separated by ":"), as paths
     # relative to the example directory.
     seed_programs: tuple[str, ...] = ()
+    # The config's search.repeat_tolerance: a known score found again is
+    # trained on its parent's reward (harness/agent.py); None turns it off.
+    repeat_tolerance: float | None = None
 
     @classmethod
     def load(cls, path: Path) -> StackSettings:
@@ -78,7 +81,12 @@ class StackSettings:
             enable_thinking=bool(training.get("enable_thinking", True)),
             siblings=SiblingSettings.from_mapping((stack.get("search") or {}).get("siblings")),
             seed_programs=seed_programs_from(stack, os.environ),
+            repeat_tolerance=_optional_float((stack.get("search") or {}).get("repeat_tolerance")),
         )
+
+
+def _optional_float(value: Any) -> float | None:
+    return None if value is None else float(value)
 
 
 def seed_programs_from(stack: Mapping[str, Any], environ: Mapping[str, str]) -> tuple[str, ...]:
@@ -142,6 +150,7 @@ def build_run(
             enable_thinking=settings.enable_thinking,
         ),
         siblings=settings.siblings,
+        repeat_tolerance=settings.repeat_tolerance,
     )
     # Seeds are scored on every start; a resumed run then replaces the
     # archive with its saved one, which already holds them.
@@ -165,6 +174,7 @@ def build_run(
         invalid_reward=INVALID_REWARD,
         siblings=settings.siblings.identity(),
         seed_programs=tuple(hashlib.sha256(seed.encode("utf-8")).hexdigest() for seed in seeds) or None,
+        repeat_tolerance=settings.repeat_tolerance,
     )
     controller = TTTDRunController(
         harness,

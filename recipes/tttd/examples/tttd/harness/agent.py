@@ -46,6 +46,7 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         algorithm: str = "ttt-discover",
         train: bool = True,
         siblings: SiblingSettings | None = None,
+        repeat_tolerance: float | None = None,
     ) -> None:
         if siblings is not None and siblings.adaptive and algorithm in GROUP_ALGORITHMS:
             raise ValueError(
@@ -75,6 +76,20 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         # training through Reef's framework-neutral opt-out, so the records
         # stay comparable with a training run's while the weights never move.
         self.train = train
+        # With a tolerance set, an attempt that only finds a score already in
+        # the archive again is trained on its parent's reward, not its own;
+        # the search still keeps its real score. None trains on every score.
+        if repeat_tolerance is not None and repeat_tolerance < 0:
+            raise ValueError("repeat_tolerance must be non-negative")
+        self.repeat_tolerance = repeat_tolerance
+
+    def training_score(self, reward: float, parent: Candidate) -> float:
+        """The score Reef trains on: the parent's reward for a known score found again, else ``reward``."""
+        tolerance = self.repeat_tolerance
+        if tolerance is None or reward == self.invalid_reward or reward <= parent.reward:
+            return reward
+        known = any(abs(item.reward - reward) <= tolerance for item in self.archive.candidates if item.solution)
+        return parent.reward if known else reward
 
     def _rollout(
         self,
@@ -125,10 +140,13 @@ class ReefTTTDiscoverHarness(_TTTDiscoverHarnessBase):
         }
         if not self.train:
             metadata["training"] = {"eligible": False}
+        score = self.training_score(result.reward, parent)
+        if score != result.reward:
+            metadata["repeat_of_known_score"] = result.reward
         self.client.report(
             self.scenario,
             {
-                "score": result.reward,
+                "score": score,
                 # The judge rejects a program with a reason and no exception.
                 "feedback": result.error or (result.output if result.reward == self.invalid_reward else None),
                 "references": [agent_record_id],
