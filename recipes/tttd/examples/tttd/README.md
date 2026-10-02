@@ -219,6 +219,23 @@ saved one, which already holds them. TTT-Discover's Qwen3-8B comparison lists
 ThetaEvolve with this kind of reuse at 1.50314 on the first autocorrelation
 inequality, against 1.50681 without; no run here has used seeds yet.
 
+## Polishing a packing
+
+`polish_packing.py` takes a packing program, runs it once, refines the packing
+it returns with SLSQP from that starting point, shrinks it until it passes
+the task judge's own checks, and writes a program that returns the result. It
+grades both programs with the task's `score.py`, the code the judge runs:
+
+```bash
+python polish_packing.py circle_packing_26 results/formal-8x64-v3-packing/packing26/best_solution.py polished.py
+```
+
+It keeps the arrangement, so it separates a precision gap from a search gap.
+On the repository's best 26-circle program (2.635983084918) the polished
+packing scores 2.635983084915, the same to 11 digits: that packing is
+already at its numerical optimum, and anything better needs a new
+arrangement.
+
 ## Ideas for beating the best known results
 
 These are not implemented; each names the change it would need.
@@ -230,11 +247,6 @@ These are not implemented; each names the change it would need.
   reports each program's key and its parent's; an attempt whose result
   matches one already in the archive could get its parent's reward instead
   of its own.
-- **Polish the top of the archive.** On packing and the autocorrelation
-  tasks the last digits come from numerical refinement, not new ideas.
-  Running the best few archive programs with a longer time budget between
-  steps, outside the 512 attempts, would test whether the remaining gap is
-  search or precision.
 - **Shrink steps once the archive stops improving.** Adaptive siblings
   (below) already decide how many attempts each parent needs. A step could
   likewise get smaller once the best score stops moving, trading attempts per
