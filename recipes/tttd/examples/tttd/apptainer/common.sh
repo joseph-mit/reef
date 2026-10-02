@@ -100,7 +100,7 @@ in_container() {
     )
     # Passed only when set: an empty CUDA_VISIBLE_DEVICES would hide every GPU.
     for name in CUDA_VISIBLE_DEVICES TTTD_TASK TTTD_METHOD TTTD_DRIVER TTTD_RUN_STEPS TTTD_HOLD_AFTER_RUN \
-        TTTD_REEF_PORT TTTD_JUDGE_PORT TTTD_ROUTER_PORT REEF_PORT_BASE; do
+        TTTD_SEED_PROGRAMS TTTD_REEF_PORT TTTD_JUDGE_PORT TTTD_ROUTER_PORT REEF_PORT_BASE; do
         if [ -n "${!name:-}" ]; then
             environment+=("APPTAINERENV_$name=${!name}")
         fi

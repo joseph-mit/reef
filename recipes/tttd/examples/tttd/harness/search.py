@@ -534,6 +534,18 @@ class _TTTDiscoverHarnessBase:
         # The parents of the last step, as PUCT saw them when it chose them.
         self.last_selection: tuple[SelectedParent, ...] = ()
 
+    def add_known_seed(self, solution: str) -> Candidate:
+        """Score a known program once and add it to the archive as one more root.
+
+        The search then improves on it instead of first finding it again. A
+        seed that the judge rejects is a configuration error, so it raises
+        instead of entering the archive with the invalid reward.
+        """
+        scored = self.scorer(solution)
+        if not math.isfinite(scored.reward) or scored.reward <= self.invalid_reward:
+            raise ValueError(f"the seed program scored {scored.reward}: {scored.output.strip()[-500:]}")
+        return self.archive.add_seed(scored.solution, scored.reward, scored.value, output=scored.output)
+
     def _plan_step(self, step: int) -> tuple[tuple[Candidate, ...], list[int]]:
         """The step's parents in PUCT order and how many attempts each gets."""
         if not self.siblings.adaptive:

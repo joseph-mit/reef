@@ -27,6 +27,9 @@ from .search import Scorer, TTTDChatRequestBuilder
 from .siblings import SiblingSettings
 from .step_records import StepRecorder
 
+# Seed program paths in a config are relative to the example directory.
+EXAMPLE_DIR = Path(__file__).resolve().parents[1]
+
 # The Reef run.sh started; TTTD_REEF_PORT moves it when two stacks share a machine.
 SERVICE_URL = f"http://127.0.0.1:{os.environ.get('TTTD_REEF_PORT', '8900')}"
 TOKEN = "reef-local"  # matches every serve*.yaml
@@ -57,6 +60,10 @@ class StackSettings:
     enable_thinking: bool
     # How a step's attempts are spread over parents (the config's search.siblings).
     siblings: SiblingSettings = field(default_factory=SiblingSettings)
+    # Known programs added to the archive as extra roots (the config's
+    # search.seed_programs, or TTTD_SEED_PROGRAMS separated by ":"), as paths
+    # relative to the example directory.
+    seed_programs: tuple[str, ...] = ()
 
     @classmethod
     def load(cls, path: Path) -> StackSettings:
@@ -70,7 +77,27 @@ class StackSettings:
             # A reduced smoke turns thinking off so a short completion still reaches code.
             enable_thinking=bool(training.get("enable_thinking", True)),
             siblings=SiblingSettings.from_mapping((stack.get("search") or {}).get("siblings")),
+            seed_programs=seed_programs_from(stack, os.environ),
         )
+
+
+def seed_programs_from(stack: Mapping[str, Any], environ: Mapping[str, str]) -> tuple[str, ...]:
+    """The seed program paths: TTTD_SEED_PROGRAMS when set, else the config's search.seed_programs."""
+    override = environ.get("TTTD_SEED_PROGRAMS")
+    if override is not None:
+        return tuple(path for path in override.split(":") if path)
+    configured = (stack.get("search") or {}).get("seed_programs") or ()
+    if isinstance(configured, str):
+        configured = (configured,)
+    return tuple(str(path) for path in configured)
+
+
+def read_seed_program(path: Path) -> str:
+    """A program file as the model's fenced code block, the form the judge and the prompt expect."""
+    code = Path(path).read_text().strip()
+    if not code:
+        raise ValueError(f"seed program {path} is empty")
+    return f"```python\n{code}\n```"
 
 
 def max_workers(task: str) -> int:
@@ -116,6 +143,11 @@ def build_run(
         ),
         siblings=settings.siblings,
     )
+    # Seeds are scored on every start; a resumed run then replaces the
+    # archive with its saved one, which already holds them.
+    seeds = [read_seed_program(EXAMPLE_DIR / path) for path in settings.seed_programs]
+    for seed in seeds:
+        harness.add_known_seed(seed)
     identity = TTTDRunIdentity(
         scenario=scenario,
         model=model,
@@ -132,6 +164,7 @@ def build_run(
         exploration=EXPLORATION,
         invalid_reward=INVALID_REWARD,
         siblings=settings.siblings.identity(),
+        seed_programs=tuple(hashlib.sha256(seed.encode("utf-8")).hexdigest() for seed in seeds) or None,
     )
     controller = TTTDRunController(
         harness,

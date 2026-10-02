@@ -297,7 +297,7 @@ def test_harbor_agent_builds_the_shared_run_and_writes_the_best_program(monkeypa
     monkeypatch.setattr(agent_module, "SEARCH_STATE_PATH", tmp_path / "search-state.json")
     monkeypatch.setattr(agent_module, "ReefTrainingStatusClient", lambda *args, **kwargs: reef)
     monkeypatch.setattr(
-        agent_module, "JudgeScorer", lambda url: lambda solution: ScoredSolution(solution, reward=1.3, value=1.3)
+        agent_module, "JudgeScorer", lambda url, **_: lambda solution: ScoredSolution(solution, reward=1.3, value=1.3)
     )
 
     class _Environment:

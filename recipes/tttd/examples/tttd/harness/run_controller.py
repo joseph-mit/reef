@@ -63,14 +63,21 @@ class TTTDRunIdentity:
     # fixed grid (harness/siblings.py); None keeps the identity of runs
     # started before adaptive siblings existed.
     siblings: tuple[tuple[str, Any], ...] | None = None
+    # SHA-256 of each seed program, so a run never resumes under other seeds;
+    # None keeps the identity of runs without seeds.
+    seed_programs: tuple[str, ...] | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        """The identity a state file records; ``siblings`` appears only when set."""
+        """The identity a state file records; ``siblings`` and ``seed_programs`` appear only when set."""
         identity = asdict(self)
         if self.siblings is None:
             identity.pop("siblings")
         else:
             identity["siblings"] = dict(self.siblings)
+        if self.seed_programs is None:
+            identity.pop("seed_programs")
+        else:
+            identity["seed_programs"] = list(self.seed_programs)
         return identity
 
 

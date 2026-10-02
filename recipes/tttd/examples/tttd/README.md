@@ -194,18 +194,35 @@ training stack leaves free. For quick ablations, packing with a smaller model
 still shows a clear gap: ThetaEvolve's ProRL-1.5B-v2 reached 2.1343 with
 search alone and 2.5225 with RL after 200 steps.
 
+## Starting from a known program
+
+The archive starts from empty seeds, so without help a run can only reach the
+best known result by finding it again. A config's `search.seed_programs` (a
+list of paths relative to this directory), or `TTTD_SEED_PROGRAMS` (paths
+separated by `:`, which overrides the config), adds each program as one more
+root of the archive. The harness scores each through the task's judge at
+start-up and refuses to start if one scores invalid; PUCT then ranks it by
+its score like any other state, so the first step already expands it and the
+whole budget goes to improving it. The empty seeds stay, so the other groups
+still explore from scratch, and a step still picks at most one parent from
+each seed's family of descendants. For example:
+
+```bash
+TTTD_SEED_PROGRAMS=results/formal-8x64-v3-packing/packing26/best_solution.py \
+TTTD_TASK=circle_packing_26 TTTD_METHOD=spottt ./run.sh
+```
+
+The seeds' SHA-256 values join the run's identity, so a run never resumes
+under different seeds, and runs without seeds keep their identity. A resumed
+run scores its seeds again at start-up and then replaces the archive with its
+saved one, which already holds them. TTT-Discover's Qwen3-8B comparison lists
+ThetaEvolve with this kind of reuse at 1.50314 on the first autocorrelation
+inequality, against 1.50681 without; no run here has used seeds yet.
+
 ## Ideas for beating the best known results
 
 These are not implemented; each names the change it would need.
 
-- **Start from the best known solution.** The archive starts from empty
-  seeds, so a run can only reach the best known result by finding it again.
-  Seeding it with the published best program puts the whole budget on
-  improving it. TTT-Discover's Qwen3-8B comparison lists ThetaEvolve with
-  this reuse at 1.50314 on the first autocorrelation inequality, against
-  1.50681 without.
-  Needs: a seed program option scored once at start-up and kept in the
-  run's saved search state.
 - **Stop rewarding repeats.** From step 16 of our SPO-TTT run, 10 to 14% of
   attempts per step land within 1e-4 of the best score, most likely the
   same packing found again. Training keeps rewarding them, which narrows the
