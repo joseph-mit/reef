@@ -150,6 +150,79 @@ the reward directly as `sum(radii)`. The reported sum is never trusted. Both
 task prompts preserve their corresponding initial TTT-Discover prompt byte for
 byte.
 
+## Judge slots and timeouts
+
+Each task's judge runs at most `max_concurrent_submissions` programs at once
+(`environment/judge_config.json`: 32 for Erdős, 64 for packing) and queues the
+rest, while the harness runs up to 512 attempts at once (256 for packing) and
+gives each judge request two hours. Both entry points now send a request only
+when a judge slot is free, so the two hours count from when the judge starts
+the program, not from when the request joined its queue. Before this, a slow
+Erdős step (512 attempts through 32 slots at up to 1,100 s each, about 4.9 h)
+could score late attempts 0 while the judge was still running them. Packing
+runs were not affected: their worst-case queue is about 35 minutes.
+
+## Choosing a task that shows learning
+
+A task shows what learning adds only when search without training falls well
+short of search with training at the same number of attempts. The
+`search-only` method is that comparison: run it next to a training method.
+
+26-circle packing is close to saturated for Qwen3-8B. In our SPO-TTT and
+PPO-TTT runs, step 1 (512 attempts from the untrained model) already reached
+2.624 and 2.627 against the best known 2.635983, and most of what training
+improved afterwards was the failure rate (83% to 13% for SPO-TTT). ThetaEvolve
+reports the same for an 8B model (DeepSeek-R1-0528-Qwen3-8B): search alone
+reached 2.6359831 and search with RL 2.6359857; its second and third
+autocorrelation tasks moved by under 1%
+([ThetaEvolve, Table 2](https://arxiv.org/abs/2511.23473)).
+
+Candidates with more room, all from
+[TTT-Discover](https://arxiv.org/abs/2601.16175) with gpt-oss-120b; none has
+a published Qwen3-8B result, and neither is ported here yet (both environments
+are in the [TTT-Discover repository](https://github.com/test-time-training/discover)):
+
+| Task | Without training | With TTT-Discover | Best human | Judge |
+| --- | ---: | ---: | ---: | --- |
+| AtCoder AHC058 (higher is better) | 772,429,752 (best of 25,600 samples) | 848,414,228 | 847,674,723 | CPU, 2 s per test case |
+| TriMul kernel on H100 (µs, lower is better) | 2,060.70 (same search, no training) | 1,203.10 | 1,371.1 | GPU, timed |
+
+TriMul's row is the cleaner test, since only the training differs; its judge
+needs a GPU, and the leaderboard has no H200 entry. AHC058's judge needs only
+CPUs, but many test cases per attempt, so size the judge slots to the CPUs the
+training stack leaves free. For quick ablations, packing with a smaller model
+still shows a clear gap: ThetaEvolve's ProRL-1.5B-v2 reached 2.1343 with
+search alone and 2.5225 with RL after 200 steps.
+
+## Ideas for beating the best known results
+
+These are not implemented; each names the change it would need.
+
+- **Start from the best known solution.** The archive starts from empty
+  seeds, so a run can only reach the best known result by finding it again.
+  Seeding it with the published best program puts the whole budget on
+  improving it. TTT-Discover's Qwen3-8B comparison lists ThetaEvolve with
+  this reuse at 1.50314 on the first autocorrelation inequality, against
+  1.50681 without.
+  Needs: a seed program option scored once at start-up and kept in the
+  run's saved search state.
+- **Stop rewarding repeats.** From step 16 of our SPO-TTT run, 10 to 14% of
+  attempts per step land within 1e-4 of the best score, most likely the
+  same packing found again. Training keeps rewarding them, which narrows the
+  search just when new ideas are needed. The harness already
+  reports each program's key and its parent's; an attempt whose result
+  matches one already in the archive could get its parent's reward instead
+  of its own.
+- **Polish the top of the archive.** On packing and the autocorrelation
+  tasks the last digits come from numerical refinement, not new ideas.
+  Running the best few archive programs with a longer time budget between
+  steps, outside the 512 attempts, would test whether the remaining gap is
+  search or precision.
+- **Shrink steps once the archive stops improving.** Adaptive siblings
+  (below) already decide how many attempts each parent needs. A step could
+  likewise get smaller once the best score stops moving, trading attempts per
+  step for more training steps, which is the batch-size question for PPO-TTT.
+
 ## Setup (once)
 
 ```bash

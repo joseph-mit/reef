@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import threading
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -42,11 +43,21 @@ class JudgeScorer:
     ``{"score": float, "reason": str}``. This is the standard Harbor
     pattern — the task is fully declarative (instruction.md + score.py +
     judge_server.py) and no task-specific Python code is imported.
+
+    The judge runs at most ``max_concurrent_submissions`` programs at once
+    and queues the rest, while ``timeout_s`` counts from the moment a request
+    is sent. With ``max_in_flight`` set to the judge's slot count, a request
+    is sent only when a slot is free, so the timeout covers the program's run
+    and not its wait in the judge's queue; the wait happens here, untimed.
+    ``None`` sends every request at once, the previous behaviour.
     """
 
-    def __init__(self, judge_url: str, *, timeout_s: float = 7200) -> None:
+    def __init__(self, judge_url: str, *, timeout_s: float = 7200, max_in_flight: int | None = None) -> None:
+        if max_in_flight is not None and max_in_flight < 1:
+            raise ValueError("max_in_flight must be positive")
         self._submit_url = judge_url.rstrip("/") + "/submit"
         self._timeout_s = timeout_s
+        self._slots = None if max_in_flight is None else threading.BoundedSemaphore(max_in_flight)
 
     def __call__(self, solution: str) -> ScoredSolution:
         data = _codeblock_body(solution).encode("utf-8")
@@ -56,8 +67,11 @@ class JudgeScorer:
             headers={"Content-Type": "text/plain"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=self._timeout_s) as resp:
-            payload = json.loads(resp.read())
+        if self._slots is None:
+            payload = self._submit(req)
+        else:
+            with self._slots:
+                payload = self._submit(req)
         reward = float(payload["score"])
         reason = payload.get("reason", "")
         return ScoredSolution(
@@ -67,6 +81,19 @@ class JudgeScorer:
             metrics={},
             output=reason,
         )
+
+    def _submit(self, req: urllib.request.Request) -> dict[str, Any]:
+        with urllib.request.urlopen(req, timeout=self._timeout_s) as resp:
+            return json.loads(resp.read())
+
+
+def judge_slots(task_dir: Path) -> int | None:
+    """The number of programs the task's judge runs at once, or None when it sets no limit."""
+    config_path = task_dir / "environment" / "judge_config.json"
+    if not config_path.is_file():
+        return None
+    slots = json.loads(config_path.read_text()).get("max_concurrent_submissions")
+    return None if slots is None else int(slots)
 
 
 class ProgramScorer:

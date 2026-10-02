@@ -19,7 +19,7 @@ from reef_client import ReefClient
 
 from .methods import DEFAULT_METHOD, method_named, scenario_name, state_dir
 from .run_controller import ReefTrainingStatusClient
-from .scorer import JudgeScorer, _codeblock_body
+from .scorer import JudgeScorer, _codeblock_body, judge_slots
 from .session import SERVICE_URL, TOKEN, StackSettings, build_run
 
 JUDGE_URL = "http://127.0.0.1:8082"  # the task's judge, published by its compose file
@@ -63,7 +63,7 @@ class HarborAgent(BaseAgent):
         harness, controller = build_run(
             self._client,
             ReefTrainingStatusClient(SERVICE_URL, token=TOKEN),
-            JudgeScorer(JUDGE_URL),
+            JudgeScorer(JUDGE_URL, max_in_flight=judge_slots(EXAMPLE_DIR / "harbor" / TASK)),
             instruction,
             method=METHOD,
             scenario=SCENARIO,

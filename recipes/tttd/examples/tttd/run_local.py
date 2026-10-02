@@ -42,7 +42,7 @@ from reef_client import ReefClient
 
 from harness.methods import DEFAULT_METHOD, method_named, scenario_name, state_dir
 from harness.run_controller import ReefTrainingStatusClient
-from harness.scorer import JudgeScorer, _codeblock_body
+from harness.scorer import JudgeScorer, _codeblock_body, judge_slots
 from harness.session import SERVICE_URL, TOKEN, StackSettings, build_run
 
 HERE = Path(__file__).resolve().parent
@@ -178,7 +178,7 @@ def main() -> None:
         harness, controller = build_run(
             ReefClient(SERVICE_URL, token=TOKEN, timeout_s=7200),
             ReefTrainingStatusClient(SERVICE_URL, token=TOKEN),
-            JudgeScorer(judge_url),
+            JudgeScorer(judge_url, max_in_flight=judge_slots(task_dir)),
             instruction,
             method=method,
             scenario=scenario,
